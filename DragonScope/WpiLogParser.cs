@@ -37,11 +37,13 @@ namespace WpiLogLib
 
                 try
                 {
+                    logCallback?.Invoke($"[{recordStart:X}] RecordType=0x{recordType:X2}");
+
                     switch (recordType)
                     {
                         case 0x00: ReadStartEntry(reader, logCallback); break;
-                        case 0x01: reader.ReadUInt16(); reader.ReadUInt64(); break;
-                        case 0x02: reader.ReadUInt16(); reader.ReadUInt64(); _ = ReadString(reader); break;
+                        case 0x01: reader.ReadUInt16(); reader.ReadUInt64(); break; // Finish Entry
+                        case 0x02: reader.ReadUInt16(); reader.ReadUInt64(); _ = ReadString(reader); break; // Metadata
                         default:
                             ReadDataRecord(reader, recordType, logCallback);
                             break;
@@ -98,7 +100,13 @@ namespace WpiLogLib
             long recordStart = reader.BaseStream.Position;
             ushort id = reader.ReadUInt16();
             ulong timestamp = reader.ReadUInt64();
-            byte length = reader.ReadByte();
+
+            if (!TryReadByte(reader, out byte length))
+            {
+                logCallback?.Invoke($"⚠️ Could not read length byte at 0x{recordStart:X}");
+                return;
+            }
+
             byte[] data = reader.ReadBytes(length);
 
             if (!Entries.TryGetValue(id, out var entry))
@@ -107,19 +115,33 @@ namespace WpiLogLib
                 return;
             }
 
-            object? value = entry.Type switch
-            {
-                "double" when data.Length >= 8 => BitConverter.ToDouble(data, 0),
-                "int64" when data.Length >= 8 => BitConverter.ToInt64(data, 0),
-                "boolean" when data.Length >= 1 => data[0] != 0,
-                "string" => Encoding.UTF8.GetString(data),
-                _ => null
-            };
-
+            object? value = ParseValue(entry.Type, data);
             if (value != null)
                 entry.Values.Add((timestamp, value));
             else
                 logCallback?.Invoke($"⚠️ Could not parse value for {entry.Name} (type: {entry.Type}) at 0x{recordStart:X}");
+        }
+
+        private object? ParseValue(string type, byte[] data)
+        {
+            try
+            {
+                return type switch
+                {
+                    "boolean" => data[0] != 0,
+                    "int64" => BitConverter.ToInt64(data, 0),
+                    "int32" => BitConverter.ToInt32(data, 0),
+                    "float" => BitConverter.ToSingle(data, 0),
+                    "double" => BitConverter.ToDouble(data, 0),
+                    "string" => Encoding.UTF8.GetString(data),
+                    "raw" => BitConverter.ToString(data).Replace("-", ""),
+                    _ => null
+                };
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static string ReadString(BinaryReader reader)
@@ -151,9 +173,12 @@ namespace WpiLogLib
             type switch
             {
                 "double" => ((double)value).ToString("G17"),
+                "float" => ((float)value).ToString("G9"),
                 "int64" => value.ToString(),
+                "int32" => value.ToString(),
                 "boolean" => (bool)value ? "1" : "0",
                 "string" => "\"" + value.ToString()?.Replace("\"", "\"\"") + "\"",
+                "raw" => value.ToString() ?? "",
                 _ => value.ToString() ?? ""
             };
     }
