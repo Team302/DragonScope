@@ -1,0 +1,5 @@
+    <Values>
+        <Value Name="/RoboRio/InputVoltage" Type="range" Rangehigh="12.8" Rangelow="10" Priority="1"/>
+        <!-- Priority is the priority fo the message: 1 highest 3 lowest-->
+    </Values>
+    
