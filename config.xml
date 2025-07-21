@@ -1,0 +1,9 @@
+<Config>
+    <!--<RangeValue Name="/RoboRio/BatteryVoltage" Rangehigh="13" Rangelow="9" Priority="1"/>-->
+    <RangeValue Name="/Fault" Rangehigh="0" Rangelow="0" Priority="1"/>
+    <RangeValue Name="/StickyFault" Rangehigh="0" Rangelow="0" Priority="2"/>
+    <ExcludedValue Name="/FaultField" />
+    <ExcludedValue Name="/Fault_SupplyCurrLimit" />
+    <ExcludedValue Name="/Fault_StatorCurrLimit" />
+    <CANDiviceAlias LogName="TalonFX-17" Alias="ARM_Motor"/>
+</Config>
