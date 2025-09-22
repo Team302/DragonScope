@@ -23,6 +23,7 @@ namespace DragonScope
         private bool m_xmlInit = false;
         string m_owletExecutablePath = string.Empty;
         string m_currentxmlType = "";
+        private string m_saveDirectory = "";
 
         private enum m_xmlDataType
         {

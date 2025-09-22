@@ -9,7 +9,7 @@ namespace WpiLogLib
 {
     public class WpiLogEntry
     {
-        public ushort Id { get; set; }
+        public int Id { get; set; }
         public string Name { get; set; } = "";
         public string Type { get; set; } = "";
         public List<(ulong Timestamp, object Value)> Values { get; set; } = new();
@@ -17,7 +17,7 @@ namespace WpiLogLib
 
     public class WpiLogParser
     {
-        public Dictionary<ushort, WpiLogEntry> Entries { get; private set; } = new();
+        public Dictionary<int, WpiLogEntry> Entries { get; private set; } = new();
         public List<string>? Filters { get; set; } = new();
 
         public void Load(string path, Action<string>? logCallback = null)
@@ -111,39 +111,6 @@ namespace WpiLogLib
             logCallback?.Invoke($"Export complete. {count} records written.");
         }
 
-        private void ReadStartEntry(BinaryReader reader, Action<string>? logCallback)
-        {
-            ushort id = reader.ReadUInt16();
-            string type = ReadString(reader);
-            string name = ReadString(reader);
-            string metadata = ReadString(reader);
-
-            Entries[id] = new WpiLogEntry { Id = id, Name = name, Type = type };
-            logCallback?.Invoke($"Entry {id}: {type} {name}");
-        }
-
-        private object? ParseValue(string type, byte[] data)
-        {
-            try
-            {
-                return type switch
-                {
-                    "boolean" => data[0] != 0,
-                    "int64" => BitConverter.ToInt64(data, 0),
-                    "int32" => BitConverter.ToInt32(data, 0),
-                    "float" => BitConverter.ToSingle(data, 0),
-                    "double" => BitConverter.ToDouble(data, 0),
-                    "string" => Encoding.UTF8.GetString(data),
-                    "raw" => BitConverter.ToString(data).Replace("-", ""),
-                    _ => null
-                };
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
         private int ReadVariableLengthInt(BinaryReader reader, int length)
         {
             int value = 0;
@@ -170,32 +137,28 @@ namespace WpiLogLib
             switch (controlType)
             {
                 case 0: // Start
-                    int entryId = reader.ReadInt32();
+                    int entryId = ReadVariableLengthInt(reader, 4); // Fixed: use variable length for entryId
                     string entryName = ReadString(reader);
                     string entryType = ReadString(reader);
                     string metadata = ReadString(reader);
 
-                    // Add the entry to the dictionary
-                    Entries[(ushort)entryId] = new WpiLogEntry
+                    Entries[entryId] = new WpiLogEntry
                     {
-                        Id = (ushort)entryId,
+                        Id = entryId,
                         Name = entryName,
                         Type = entryType
                     };
                     break;
 
                 case 1: // Finish
-                    entryId = reader.ReadInt32();
-                    // Remove the entry from the dictionary
-                    Entries.Remove((ushort)entryId);
+                    entryId = ReadVariableLengthInt(reader, 4); // Fixed: use variable length for entryId
+                    Entries.Remove(entryId);
                     break;
 
                 case 2: // Set Metadata
-                    entryId = reader.ReadInt32();
+                    entryId = ReadVariableLengthInt(reader, 4); // Fixed: use variable length for entryId
                     string newMetadata = ReadString(reader);
-
-                    // Update metadata if the entry exists
-                    if (Entries.TryGetValue((ushort)entryId, out var entry))
+                    if (Entries.TryGetValue(entryId, out var entry))
                     {
                         // Metadata can be stored or processed as needed
                     }
@@ -206,8 +169,11 @@ namespace WpiLogLib
             }
         }
 
-        private bool ShouldInclude(string name) =>
-            Filters == null || Filters.Count == 0 || Filters.Any(f => name.Contains(f, StringComparison.OrdinalIgnoreCase));
+        private bool ShouldInclude(string name)
+        {
+            //Filters == null || Filters.Count == 0 || Filters.Any(f => name.Contains(f, StringComparison.OrdinalIgnoreCase));
+            return true;
+        }
 
         private static string FormatValue(string type, object value) =>
             type switch
@@ -225,11 +191,9 @@ namespace WpiLogLib
         {
             byte[] payload = reader.ReadBytes(payloadSize);
 
-            // Ensure the entry exists
-            if (!Entries.TryGetValue((ushort)entryId, out var entry))
+            if (!Entries.TryGetValue(entryId, out var entry))
                 return;
 
-            // Decode the payload based on the entry type
             object? value = entry.Type switch
             {
                 "double" when payload.Length >= 8 => BitConverter.ToDouble(payload, 0),
@@ -239,7 +203,6 @@ namespace WpiLogLib
                 _ => null
             };
 
-            // Add the value to the entry's values list
             if (value != null)
             {
                 entry.Values.Add(((ulong)timestamp, value));
