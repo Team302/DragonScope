@@ -52,28 +52,6 @@ namespace WpiLogLib
 
                 try
                 {
-<<<<<<< Updated upstream
-                    logCallback?.Invoke($"[{recordStart:X}] RecordType=0x{recordType:X2}");
-
-                    switch (recordType)
-                    {
-                        case 0x00: ReadStartEntry(reader, logCallback); break;
-                        case 0x01: reader.ReadUInt16(); reader.ReadUInt64(); break; // Finish Entry
-                        case 0x02: reader.ReadUInt16(); reader.ReadUInt64(); _ = ReadString(reader); break; // Metadata
-                        default:
-                            ReadDataRecord(reader, recordType, logCallback);
-                            break;
-                    }
-
-                    resyncAttempts = 0; // reset on success
-                }
-                catch (Exception ex)
-                {
-                    logCallback?.Invoke($"⚠️ Error at 0x{recordStart:X}: {ex.Message}. Skipping 1 byte...");
-                    resyncAttempts++;
-                    if (resyncAttempts > maxResync)
-                        throw new Exception("Too many resync attempts. File may be corrupt.");
-=======
                     byte headerLengthField = reader.ReadByte();
 
                     // Decode header length field
@@ -106,7 +84,6 @@ namespace WpiLogLib
                 {
                     MessageBox.Show($"⚠️ Error at 0x{recordStart:X}: {ex.Message}");
                     // Skip to the next byte and try again
->>>>>>> Stashed changes
                     reader.BaseStream.Position = recordStart + 1;
                 }
             }
@@ -143,33 +120,6 @@ namespace WpiLogLib
 
             Entries[id] = new WpiLogEntry { Id = id, Name = name, Type = type };
             logCallback?.Invoke($"Entry {id}: {type} {name}");
-        }
-
-        private void ReadDataRecord(BinaryReader reader, byte recordType, Action<string>? logCallback)
-        {
-            long recordStart = reader.BaseStream.Position;
-            ushort id = reader.ReadUInt16();
-            ulong timestamp = reader.ReadUInt64();
-
-            if (!TryReadByte(reader, out byte length))
-            {
-                logCallback?.Invoke($"⚠️ Could not read length byte at 0x{recordStart:X}");
-                return;
-            }
-
-            byte[] data = reader.ReadBytes(length);
-
-            if (!Entries.TryGetValue(id, out var entry))
-            {
-                logCallback?.Invoke($"Unknown entry ID {id} at 0x{recordStart:X}, skipping...");
-                return;
-            }
-
-            object? value = ParseValue(entry.Type, data);
-            if (value != null)
-                entry.Values.Add((timestamp, value));
-            else
-                logCallback?.Invoke($"⚠️ Could not parse value for {entry.Name} (type: {entry.Type}) at 0x{recordStart:X}");
         }
 
         private object? ParseValue(string type, byte[] data)
@@ -256,7 +206,6 @@ namespace WpiLogLib
             }
         }
 
-<<<<<<< Updated upstream
         private bool ShouldInclude(string name) =>
             Filters == null || Filters.Count == 0 || Filters.Any(f => name.Contains(f, StringComparison.OrdinalIgnoreCase));
 
@@ -272,7 +221,6 @@ namespace WpiLogLib
                 "raw" => value.ToString() ?? "",
                 _ => value.ToString() ?? ""
             };
-=======
         private void ProcessDataRecord(BinaryReader reader, int entryId, long timestamp, int payloadSize)
         {
             byte[] payload = reader.ReadBytes(payloadSize);
@@ -303,6 +251,5 @@ namespace WpiLogLib
             int length = reader.ReadInt32();
             return new string(reader.ReadChars(length));
         }
->>>>>>> Stashed changes
     }
 }
