@@ -20,13 +20,17 @@ namespace WpiLogLib
         public Dictionary<ushort, WpiLogEntry> Entries { get; private set; } = new();
         public List<string>? Filters { get; set; } = new();
 
+        private readonly List<WpiLogEntry> _completedEntries = new();
+        private int _startCount;
+        private int _finishCount;
+
         public void Load(string path, Action<string>? logCallback = null)
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read);
             using var reader = new BinaryReader(stream);
 
-            // Validate the header
-            string header = new string(reader.ReadChars(6));
+            // Validate the header (read bytes, not chars)
+            string header = Encoding.ASCII.GetString(reader.ReadBytes(6));
             if (header != "WPILOG")
             {
                 throw new Exception("Invalid wpilog file: Missing WPILOG header.");
@@ -41,7 +45,8 @@ namespace WpiLogLib
             int extraHeaderLength = reader.ReadInt32();
             if (extraHeaderLength > 0)
             {
-                string extraHeader = new string(reader.ReadChars(extraHeaderLength));
+                // Extra header length is in bytes; decode from bytes
+                string extraHeader = Encoding.UTF8.GetString(reader.ReadBytes(extraHeaderLength));
                 // Process extra header if needed
             }
 
@@ -54,39 +59,37 @@ namespace WpiLogLib
                 {
                     byte headerLengthField = reader.ReadByte();
 
-                    // Decode header length field
                     int entryIdLength = (headerLengthField & 0b00000011) + 1;
                     int payloadSizeLength = ((headerLengthField >> 2) & 0b00000011) + 1;
                     int timestampLength = ((headerLengthField >> 4) & 0b00000111) + 1;
 
-                    // Read entry ID
                     int entryId = ReadVariableLengthInt(reader, entryIdLength);
-
-                    // Read payload size
                     int payloadSize = ReadVariableLengthInt(reader, payloadSizeLength);
-
-                    // Read timestamp
                     long timestamp = ReadVariableLengthLong(reader, timestampLength);
 
-                    // Process control or data record
                     if (entryId == 0)
                     {
-                        // Control record
-                        ProcessControlRecord(reader, payloadSize);
+                        ProcessControlRecord(reader, payloadSize, logCallback);
                     }
                     else
                     {
-                        // Data record
                         ProcessDataRecord(reader, entryId, timestamp, payloadSize);
                     }
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show($"⚠️ Error at 0x{recordStart:X}: {ex.Message}");
-                    // Skip to the next byte and try again
                     reader.BaseStream.Position = recordStart + 1;
                 }
             }
+
+            if (Entries.Count > 0)
+            {
+                _completedEntries.AddRange(Entries.Values);
+                Entries.Clear();
+            }
+
+            logCallback?.Invoke($"Control summary: start={_startCount}, finish={_finishCount}, completed={_completedEntries.Count}");
         }
 
         public void ExportToCsv(string outputPath, Action<string>? logCallback = null)
@@ -94,6 +97,19 @@ namespace WpiLogLib
             using var writer = new StreamWriter(outputPath);
             writer.WriteLine("Timestamp,Name,Value");
             int count = 0;
+
+            foreach (var entry in _completedEntries)
+            {
+                if (!ShouldInclude(entry.Name)) continue;
+
+                foreach (var (timestamp, value) in entry.Values)
+                {
+                    string valStr = FormatValue(entry.Type, value);
+                    writer.WriteLine($"{timestamp},{entry.Name},{valStr}");
+                    if (++count % 10000 == 0)
+                        logCallback?.Invoke($"Exported {count} records...");
+                }
+            }
 
             foreach (var entry in Entries.Values)
             {
@@ -164,18 +180,26 @@ namespace WpiLogLib
             return value;
         }
 
-        private void ProcessControlRecord(BinaryReader reader, int payloadSize)
+        private void ProcessControlRecord(BinaryReader reader, int payloadSize, Action<string>? logCallback)
         {
+            long payloadEnd = reader.BaseStream.Position + payloadSize;
+
             byte controlType = reader.ReadByte();
             switch (controlType)
             {
                 case 0: // Start
+                    _startCount++;
                     int entryId = reader.ReadInt32();
                     string entryName = ReadString(reader);
                     string entryType = ReadString(reader);
                     string metadata = ReadString(reader);
 
-                    // Add the entry to the dictionary
+                    if (Entries.TryGetValue((ushort)entryId, out var existing))
+                    {
+                        _completedEntries.Add(existing);
+                        logCallback?.Invoke($"Archived existing entry {entryId} on Start.");
+                    }
+
                     Entries[(ushort)entryId] = new WpiLogEntry
                     {
                         Id = (ushort)entryId,
@@ -185,16 +209,23 @@ namespace WpiLogLib
                     break;
 
                 case 1: // Finish
+                    _finishCount++;
                     entryId = reader.ReadInt32();
-                    // Remove the entry from the dictionary
-                    Entries.Remove((ushort)entryId);
+
+                    if (Entries.Remove((ushort)entryId, out var finishedEntry))
+                    {
+                        _completedEntries.Add(finishedEntry);
+                        logCallback?.Invoke($"Finished entry {entryId}.");
+                    }
+                    else
+                    {
+                        logCallback?.Invoke($"Finish for unknown entry {entryId}.");
+                    }
                     break;
 
                 case 2: // Set Metadata
                     entryId = reader.ReadInt32();
                     string newMetadata = ReadString(reader);
-
-                    // Update metadata if the entry exists
                     if (Entries.TryGetValue((ushort)entryId, out var entry))
                     {
                         // Metadata can be stored or processed as needed
@@ -204,6 +235,9 @@ namespace WpiLogLib
                 default:
                     throw new Exception($"Unknown control record type: {controlType}");
             }
+
+            // Align to payload end to avoid desync if we mis-read any field inside
+            reader.BaseStream.Position = payloadEnd;
         }
 
         private bool ShouldInclude(string name) =>
@@ -221,35 +255,41 @@ namespace WpiLogLib
                 "raw" => value.ToString() ?? "",
                 _ => value.ToString() ?? ""
             };
+
         private void ProcessDataRecord(BinaryReader reader, int entryId, long timestamp, int payloadSize)
         {
             byte[] payload = reader.ReadBytes(payloadSize);
 
-            // Ensure the entry exists
             if (!Entries.TryGetValue((ushort)entryId, out var entry))
                 return;
 
-            // Decode the payload based on the entry type
             object? value = entry.Type switch
             {
                 "double" when payload.Length >= 8 => BitConverter.ToDouble(payload, 0),
-                "int64" when payload.Length >= 8 => BitConverter.ToInt64(payload, 0),
+                "int64"  when payload.Length >= 8 => BitConverter.ToInt64(payload, 0),
                 "boolean" when payload.Length >= 1 => payload[0] != 0,
                 "string" => Encoding.UTF8.GetString(payload),
                 _ => null
             };
 
-            // Add the value to the entry's values list
             if (value != null)
             {
                 entry.Values.Add(((ulong)timestamp, value));
             }
         }
 
+        // IMPORTANT: length prefix is in BYTES; decode from bytes with UTF-8
         private static string ReadString(BinaryReader reader)
         {
-            int length = reader.ReadInt32();
-            return new string(reader.ReadChars(length));
+            int byteLength = reader.ReadInt32();
+            if (byteLength < 0) throw new Exception("Negative string length");
+            if (byteLength == 0) return string.Empty;
+
+            var bytes = reader.ReadBytes(byteLength);
+            if (bytes.Length != byteLength)
+                throw new EndOfStreamException("Unexpected end of stream while reading string.");
+
+            return Encoding.UTF8.GetString(bytes);
         }
     }
 }
