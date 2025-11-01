@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Xml.Linq;
 using WpiLogLib;
@@ -23,6 +24,7 @@ namespace DragonScope
         private bool m_xmlInit = false;
         string m_owletExecutablePath = string.Empty;
         string m_currentxmlType = "";
+        Stopwatch m_stopWatch = new Stopwatch();
 
         private enum m_xmlDataType
         {
@@ -43,6 +45,7 @@ namespace DragonScope
                 {
                     ParseCsvFile(openFileDialog.FileName);
                     lblCsvFile.Text = openFileDialog.FileName;
+                    m_stopWatch.Restart();
                 }
             }
         }
@@ -76,7 +79,6 @@ namespace DragonScope
             string[] xmlBoolNames = xmlDataBool.Keys.ToArray();
 
             int linesparsed = 0;
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             for (int it = 0; it < lines.Length; it++)
             {
@@ -170,8 +172,8 @@ namespace DragonScope
             }
 
             progressBar1.Value = 100; // Ensure progress bar is full at the end
-            stopwatch.Stop();
-            WriteToTextBox(linesparsed + 1.ToString() + " entries parsed in " + stopwatch.Elapsed.TotalSeconds.ToString() + " seconds", 0);
+            m_stopWatch.Stop();
+            WriteToTextBox(linesparsed + 1.ToString() + " entries parsed in " + m_stopWatch.Elapsed.TotalSeconds.ToString() + " seconds", 0);
         }
         private m_xmlDataType GetTypeFromXml(string name)
         {
@@ -309,6 +311,11 @@ namespace DragonScope
         }
         private void HootLoad_Click(object sender, EventArgs e)
         {
+            if (!m_xmlInit)
+            {
+                MessageBox.Show("Please load the XML file first.");
+                return;
+            }
             try
             {
                 string targetPath = "";
@@ -355,8 +362,9 @@ namespace DragonScope
 
         private void ConvertHootLogToWpilog(string hootLogPath, string wpilogPath)
         {
+            m_stopWatch.Restart();
             progressBar1.Value = 0;
-            if(m_owletExecutablePath != string.Empty)
+            if (m_owletExecutablePath != string.Empty)
             {
                 MessageBox.Show("Owlet executable already selected, skipping selection dialog.");
             }
@@ -365,6 +373,7 @@ namespace DragonScope
                 using OpenFileDialog openFileDialog = new OpenFileDialog
                 {
                     Filter = "Owlet Executable|owlet.exe|All files (*.*)|*.*",
+                    Title = "Select Owlet Executable",
                     InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
                 };
                 if (openFileDialog.ShowDialog() == DialogResult.OK)

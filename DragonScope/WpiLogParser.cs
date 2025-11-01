@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Windows.Forms;
+﻿using System.Text;
 
 namespace WpiLogLib
 {
@@ -126,40 +121,6 @@ namespace WpiLogLib
 
             logCallback?.Invoke($"Export complete. {count} records written.");
         }
-
-        private void ReadStartEntry(BinaryReader reader, Action<string>? logCallback)
-        {
-            ushort id = reader.ReadUInt16();
-            string type = ReadString(reader);
-            string name = ReadString(reader);
-            string metadata = ReadString(reader);
-
-            Entries[id] = new WpiLogEntry { Id = id, Name = name, Type = type };
-            logCallback?.Invoke($"Entry {id}: {type} {name}");
-        }
-
-        private object? ParseValue(string type, byte[] data)
-        {
-            try
-            {
-                return type switch
-                {
-                    "boolean" => data[0] != 0,
-                    "int64" => BitConverter.ToInt64(data, 0),
-                    "int32" => BitConverter.ToInt32(data, 0),
-                    "float" => BitConverter.ToSingle(data, 0),
-                    "double" => BitConverter.ToDouble(data, 0),
-                    "string" => Encoding.UTF8.GetString(data),
-                    "raw" => BitConverter.ToString(data).Replace("-", ""),
-                    _ => null
-                };
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
         private int ReadVariableLengthInt(BinaryReader reader, int length)
         {
             int value = 0;
@@ -266,7 +227,7 @@ namespace WpiLogLib
             object? value = entry.Type switch
             {
                 "double" when payload.Length >= 8 => BitConverter.ToDouble(payload, 0),
-                "int64"  when payload.Length >= 8 => BitConverter.ToInt64(payload, 0),
+                "int64" when payload.Length >= 8 => BitConverter.ToInt64(payload, 0),
                 "boolean" when payload.Length >= 1 => payload[0] != 0,
                 "string" => Encoding.UTF8.GetString(payload),
                 _ => null
