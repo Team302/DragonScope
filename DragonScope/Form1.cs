@@ -111,7 +111,7 @@ namespace DragonScope
                                     {
                                         float startTime = activeConditions[values[1]];
                                         float endTime = timeValue - robotenable;
-                                        WriteToTextBox($"\"{displayName}\" was true from {startTime} to {endTime}".Remove(0, 6), 1);
+                                        WriteToTextBox($"\"{displayName}\" was true from {startTime} to {endTime}", boolPriorityInt);
                                         activeConditions.Remove(values[1]);
                                     }
                                 }
@@ -141,7 +141,7 @@ namespace DragonScope
                                             {
                                                 float startTime = activeConditions[values[1]];
                                                 float endTime = timeValue - robotenable;
-                                                WriteToTextBox($"\"{displayName}\" was out of bounds from {startTime} to {endTime}".Remove(0, 6), rangePriorityInt);
+                                                WriteToTextBox($"\"{displayName}\" was out of bounds from {startTime} to {endTime}", rangePriorityInt);
                                                 activeConditions.Remove(values[1]);
                                             }
                                         }
@@ -168,7 +168,7 @@ namespace DragonScope
             // Handle any remaining active conditions at the end of the file
             foreach (var condition in activeConditions)
             {
-                WriteToTextBox($"\"{condition.Key}\" started at {condition.Value} and did not end.".Remove(0, 6), 4);
+                WriteToTextBox($"\"{GetAlias(condition.Key)}\" started at {condition.Value} and did not end.", 4);
             }
 
             progressBar1.Value = 100; // Ensure progress bar is full at the end
