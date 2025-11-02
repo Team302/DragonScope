@@ -1,14 +1,13 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Xml.Linq;
 using WpiLogLib;
-using System.Security.Cryptography; // added
 
 namespace DragonScope
 {
     public partial class Form1 : Form
     {
-
         public Form1()
         {
             InitializeComponent();
@@ -18,6 +17,7 @@ namespace DragonScope
                 this.Icon = new Icon(stream);
             }
         }
+
         private Dictionary<string, (string RangeHigh, string RangeLow, string priority)> xmlDataRange;
         private Dictionary<string, (string FlagState, string priority)> xmlDataBool;
         private Dictionary<string, string> xmlAlias;
@@ -329,15 +329,19 @@ namespace DragonScope
                         string fileNameOnly = Path.GetFileName(openFileDialog.FileName);
                         targetPath = openFileDialog.FileName;
                     }
-                }
-                using (FolderBrowserDialog folderBrowserDialog = new FolderBrowserDialog())
-                {
-                    folderBrowserDialog.Description = "Select the target directory for the converted file";
-                    if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
+                    else
                     {
-                        ConvertHootLogToWpilog(targetPath, Path.Combine(folderBrowserDialog.SelectedPath, targetPath.Replace(".hoot", ".wpilog")));
+                        return;
                     }
                 }
+
+                // Build output path in AppData\DragonScope\Logs
+                string logsDir = GetLogsDir();
+                string wpilogFileName = Path.GetFileNameWithoutExtension(targetPath) + ".wpilog";
+                string wpilogOutputPath = Path.Combine(logsDir, wpilogFileName);
+
+                ConvertHootLogToWpilog(targetPath, wpilogOutputPath);
+                MessageBox.Show($"Saved:\n{wpilogOutputPath}\n{wpilogOutputPath.Replace(".wpilog", ".csv")}");
             }
             catch (Exception ex)
             {
@@ -397,7 +401,10 @@ namespace DragonScope
                 }
             }
 
-            string arguments = $"-f wpilog -F {hootLogPath} {wpilogPath}";
+            // Ensure output directory exists
+            Directory.CreateDirectory(Path.GetDirectoryName(wpilogPath)!);
+
+            string arguments = $"-f wpilog -F \"{hootLogPath}\" \"{wpilogPath}\"";
             if (!File.Exists(hootLogPath))
             {
                 MessageBox.Show("Provide valid hoot directory");
@@ -435,6 +442,13 @@ namespace DragonScope
         private static string GetAppDataDir()
         {
             var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DragonScope");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        private static string GetLogsDir()
+        {
+            var dir = Path.Combine(GetAppDataDir(), "Logs");
             Directory.CreateDirectory(dir);
             return dir;
         }
@@ -504,6 +518,23 @@ namespace DragonScope
             {
                 message = $"Failed to verify Owlet executable: {ex.Message}";
                 return false;
+            }
+        }
+
+        // --- Save text box output to a text file ---
+        private void SaveOutputToTextFile_Click(object? sender, EventArgs e)
+        {
+            using var sfd = new SaveFileDialog
+            {
+                Title = "Save Output",
+                Filter = "Text Files (*.txt)|*.txt|All files (*.*)|*.*",
+                FileName = $"DragonScope_Output_{DateTime.Now:yyyyMMdd_HHmmss}.txt",
+                InitialDirectory = GetLogsDir()
+            };
+            if (sfd.ShowDialog() == DialogResult.OK)
+            {
+                File.WriteAllText(sfd.FileName, textBoxOutput.Text);
+                MessageBox.Show($"Saved output to:\n{sfd.FileName}", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
     }
