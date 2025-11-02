@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Xml.Linq;
 using WpiLogLib;
+using System.Security.Cryptography; // added
 
 namespace DragonScope
 {
@@ -364,12 +365,13 @@ namespace DragonScope
         {
             m_stopWatch.Restart();
             progressBar1.Value = 0;
-            if (m_owletExecutablePath != string.Empty)
+
+            // Load saved owlet path + sha1 from AppData and verify. If missing/mismatch, prompt.
+            if (!TryEnsureOwletPathVerified(out string errorMessage))
             {
-                MessageBox.Show("Owlet executable already selected, skipping selection dialog.");
-            }
-            else
-            {
+                if (!string.IsNullOrEmpty(errorMessage))
+                    MessageBox.Show(errorMessage, "Owlet verification", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
                 using OpenFileDialog openFileDialog = new OpenFileDialog
                 {
                     Filter = "Owlet Executable|owlet.exe|All files (*.*)|*.*",
@@ -378,7 +380,15 @@ namespace DragonScope
                 };
                 if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
-                    m_owletExecutablePath = openFileDialog.FileName;
+                    var selectedPath = openFileDialog.FileName;
+                    if (!File.Exists(selectedPath))
+                    {
+                        MessageBox.Show("Selected file does not exist.");
+                        return;
+                    }
+                    var sha1 = ComputeSha1(selectedPath);
+                    SaveOwletConfig(selectedPath, sha1);
+                    m_owletExecutablePath = selectedPath;
                 }
                 else
                 {
@@ -418,6 +428,83 @@ namespace DragonScope
                 throw new Exception($"Owlet conversion failed: {error}");
             }
             ConvertWpilogToCsv(wpilogPath, wpilogPath.Replace(".wpilog", ".csv"));
+        }
+
+        // -------- AppData storage + SHA-1 verification helpers --------
+
+        private static string GetAppDataDir()
+        {
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DragonScope");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        private static string GetOwletConfigPath()
+        {
+            return Path.Combine(GetAppDataDir(), "owlet_path.txt");
+        }
+
+        private static string ComputeSha1(string filePath)
+        {
+            using var sha1 = SHA1.Create();
+            using var fs = File.OpenRead(filePath);
+            var hash = sha1.ComputeHash(fs);
+            return BitConverter.ToString(hash).Replace("-", "").ToUpperInvariant();
+        }
+
+        private static bool TryLoadOwletConfig(out string path, out string sha1)
+        {
+            path = "";
+            sha1 = "";
+            var cfg = GetOwletConfigPath();
+            if (!File.Exists(cfg)) return false;
+
+            var lines = File.ReadAllLines(cfg);
+            if (lines.Length >= 2)
+            {
+                path = lines[0].Trim();
+                sha1 = lines[1].Trim();
+                return true;
+            }
+            return false;
+        }
+
+        private static void SaveOwletConfig(string path, string sha1)
+        {
+            var cfg = GetOwletConfigPath();
+            File.WriteAllLines(cfg, new[] { path, sha1 });
+        }
+
+        // Loads saved path and verifies SHA-1; sets m_owletExecutablePath if valid.
+        private bool TryEnsureOwletPathVerified(out string message)
+        {
+            message = "";
+            if (!TryLoadOwletConfig(out var savedPath, out var savedSha1))
+            {
+                message = "Owlet path not configured.";
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(savedPath) || !File.Exists(savedPath))
+            {
+                message = "Saved Owlet path is missing. Please reselect the executable.";
+                return false;
+            }
+            try
+            {
+                var currentSha1 = ComputeSha1(savedPath);
+                if (!string.Equals(currentSha1, savedSha1, StringComparison.OrdinalIgnoreCase))
+                {
+                    message = "Owlet executable has changed (SHA-1 mismatch). Please reselect the executable.";
+                    return false;
+                }
+                m_owletExecutablePath = savedPath;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = $"Failed to verify Owlet executable: {ex.Message}";
+                return false;
+            }
         }
     }
 }
