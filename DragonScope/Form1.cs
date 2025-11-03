@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Xml.Linq;
 using WpiLogLib;
 
@@ -6,7 +8,6 @@ namespace DragonScope
 {
     public partial class Form1 : Form
     {
-
         public Form1()
         {
             InitializeComponent();
@@ -16,6 +17,7 @@ namespace DragonScope
                 this.Icon = new Icon(stream);
             }
         }
+
         private Dictionary<string, (string RangeHigh, string RangeLow, string priority)> xmlDataRange;
         private Dictionary<string, (string FlagState, string priority)> xmlDataBool;
         private Dictionary<string, string> xmlAlias;
@@ -23,6 +25,7 @@ namespace DragonScope
         private bool m_xmlInit = false;
         string m_owletExecutablePath = string.Empty;
         string m_currentxmlType = "";
+        Stopwatch m_stopWatch = new Stopwatch();
 
         private enum m_xmlDataType
         {
@@ -43,6 +46,7 @@ namespace DragonScope
                 {
                     ParseCsvFile(openFileDialog.FileName);
                     lblCsvFile.Text = openFileDialog.FileName;
+                    m_stopWatch.Restart();
                 }
             }
         }
@@ -76,7 +80,6 @@ namespace DragonScope
             string[] xmlBoolNames = xmlDataBool.Keys.ToArray();
 
             int linesparsed = 0;
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
             for (int it = 0; it < lines.Length; it++)
             {
@@ -109,7 +112,7 @@ namespace DragonScope
                                     {
                                         float startTime = activeConditions[values[1]];
                                         float endTime = timeValue - robotenable;
-                                        WriteToTextBox($"\"{displayName}\" was true from {startTime} to {endTime}".Remove(0, 6), 1);
+                                        WriteToTextBox($"\"{displayName}\" was true from {startTime} to {endTime}", boolPriorityInt);
                                         activeConditions.Remove(values[1]);
                                     }
                                 }
@@ -139,7 +142,7 @@ namespace DragonScope
                                             {
                                                 float startTime = activeConditions[values[1]];
                                                 float endTime = timeValue - robotenable;
-                                                WriteToTextBox($"\"{displayName}\" was out of bounds from {startTime} to {endTime}".Remove(0, 6), rangePriorityInt);
+                                                WriteToTextBox($"\"{displayName}\" was out of bounds from {startTime} to {endTime}", rangePriorityInt);
                                                 activeConditions.Remove(values[1]);
                                             }
                                         }
@@ -166,12 +169,12 @@ namespace DragonScope
             // Handle any remaining active conditions at the end of the file
             foreach (var condition in activeConditions)
             {
-                WriteToTextBox($"\"{condition.Key}\" started at {condition.Value} and did not end.".Remove(0, 6), 4);
+                WriteToTextBox($"\"{GetAlias(condition.Key)}\" started at {condition.Value} and did not end.", 4);
             }
 
             progressBar1.Value = 100; // Ensure progress bar is full at the end
-            stopwatch.Stop();
-            WriteToTextBox(linesparsed + 1.ToString() + " entries parsed in " + stopwatch.Elapsed.TotalSeconds.ToString() + " seconds", 0);
+            m_stopWatch.Stop();
+            WriteToTextBox(linesparsed + 1.ToString() + " entries parsed in " + m_stopWatch.Elapsed.TotalSeconds.ToString() + " seconds", 0);
         }
         private m_xmlDataType GetTypeFromXml(string name)
         {
@@ -309,6 +312,11 @@ namespace DragonScope
         }
         private void HootLoad_Click(object sender, EventArgs e)
         {
+            if (!m_xmlInit)
+            {
+                MessageBox.Show("Please load the XML file first.");
+                return;
+            }
             try
             {
                 string targetPath = "";
@@ -321,15 +329,19 @@ namespace DragonScope
                         string fileNameOnly = Path.GetFileName(openFileDialog.FileName);
                         targetPath = openFileDialog.FileName;
                     }
-                }
-                using (FolderBrowserDialog folderBrowserDialog = new FolderBrowserDialog())
-                {
-                    folderBrowserDialog.Description = "Select the target directory for the converted file";
-                    if (folderBrowserDialog.ShowDialog() == DialogResult.OK)
+                    else
                     {
-                        ConvertHootLogToWpilog(targetPath, Path.Combine(folderBrowserDialog.SelectedPath, targetPath.Replace(".hoot", ".wpilog")));
+                        return;
                     }
                 }
+
+                // Build output path in AppData\DragonScope\Logs
+                string logsDir = GetLogsDir();
+                string wpilogFileName = Path.GetFileNameWithoutExtension(targetPath) + ".wpilog";
+                string wpilogOutputPath = Path.Combine(logsDir, wpilogFileName);
+
+                ConvertHootLogToWpilog(targetPath, wpilogOutputPath);
+                MessageBox.Show($"Saved:\n{wpilogOutputPath}\n{wpilogOutputPath.Replace(".wpilog", ".csv")}");
             }
             catch (Exception ex)
             {
@@ -355,21 +367,32 @@ namespace DragonScope
 
         private void ConvertHootLogToWpilog(string hootLogPath, string wpilogPath)
         {
+            m_stopWatch.Restart();
             progressBar1.Value = 0;
-            if(m_owletExecutablePath != string.Empty)
+
+            // Load saved owlet path + sha1 from AppData and verify. If missing/mismatch, prompt.
+            if (!TryEnsureOwletPathVerified(out string errorMessage))
             {
-                MessageBox.Show("Owlet executable already selected, skipping selection dialog.");
-            }
-            else
-            {
+                if (!string.IsNullOrEmpty(errorMessage))
+                    MessageBox.Show(errorMessage, "Owlet verification", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
                 using OpenFileDialog openFileDialog = new OpenFileDialog
                 {
                     Filter = "Owlet Executable|owlet.exe|All files (*.*)|*.*",
+                    Title = "Select Owlet Executable",
                     InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
                 };
                 if (openFileDialog.ShowDialog() == DialogResult.OK)
                 {
-                    m_owletExecutablePath = openFileDialog.FileName;
+                    var selectedPath = openFileDialog.FileName;
+                    if (!File.Exists(selectedPath))
+                    {
+                        MessageBox.Show("Selected file does not exist.");
+                        return;
+                    }
+                    var sha1 = ComputeSha1(selectedPath);
+                    SaveOwletConfig(selectedPath, sha1);
+                    m_owletExecutablePath = selectedPath;
                 }
                 else
                 {
@@ -378,7 +401,10 @@ namespace DragonScope
                 }
             }
 
-            string arguments = $"-f wpilog -F {hootLogPath} {wpilogPath}";
+            // Ensure output directory exists
+            Directory.CreateDirectory(Path.GetDirectoryName(wpilogPath)!);
+
+            string arguments = $"-f wpilog -F \"{hootLogPath}\" \"{wpilogPath}\"";
             if (!File.Exists(hootLogPath))
             {
                 MessageBox.Show("Provide valid hoot directory");
@@ -409,6 +435,107 @@ namespace DragonScope
                 throw new Exception($"Owlet conversion failed: {error}");
             }
             ConvertWpilogToCsv(wpilogPath, wpilogPath.Replace(".wpilog", ".csv"));
+        }
+
+        // -------- AppData storage + SHA-1 verification helpers --------
+
+        private static string GetAppDataDir()
+        {
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DragonScope");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        private static string GetLogsDir()
+        {
+            var dir = Path.Combine(GetAppDataDir(), "Logs");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+
+        private static string GetOwletConfigPath()
+        {
+            return Path.Combine(GetAppDataDir(), "owlet_path.txt");
+        }
+
+        private static string ComputeSha1(string filePath)
+        {
+            using var sha1 = SHA1.Create();
+            using var fs = File.OpenRead(filePath);
+            var hash = sha1.ComputeHash(fs);
+            return BitConverter.ToString(hash).Replace("-", "").ToUpperInvariant();
+        }
+
+        private static bool TryLoadOwletConfig(out string path, out string sha1)
+        {
+            path = "";
+            sha1 = "";
+            var cfg = GetOwletConfigPath();
+            if (!File.Exists(cfg)) return false;
+
+            var lines = File.ReadAllLines(cfg);
+            if (lines.Length >= 2)
+            {
+                path = lines[0].Trim();
+                sha1 = lines[1].Trim();
+                return true;
+            }
+            return false;
+        }
+
+        private static void SaveOwletConfig(string path, string sha1)
+        {
+            var cfg = GetOwletConfigPath();
+            File.WriteAllLines(cfg, new[] { path, sha1 });
+        }
+
+        // Loads saved path and verifies SHA-1; sets m_owletExecutablePath if valid.
+        private bool TryEnsureOwletPathVerified(out string message)
+        {
+            message = "";
+            if (!TryLoadOwletConfig(out var savedPath, out var savedSha1))
+            {
+                message = "Owlet path not configured.";
+                return false;
+            }
+            if (string.IsNullOrWhiteSpace(savedPath) || !File.Exists(savedPath))
+            {
+                message = "Saved Owlet path is missing. Please reselect the executable.";
+                return false;
+            }
+            try
+            {
+                var currentSha1 = ComputeSha1(savedPath);
+                if (!string.Equals(currentSha1, savedSha1, StringComparison.OrdinalIgnoreCase))
+                {
+                    message = "Owlet executable has changed (SHA-1 mismatch). Please reselect the executable.";
+                    return false;
+                }
+                m_owletExecutablePath = savedPath;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = $"Failed to verify Owlet executable: {ex.Message}";
+                return false;
+            }
+        }
+
+        // --- Save text box output to a text file ---
+        private void SaveOutputToTextFile_Click(object? sender, EventArgs e)
+        {
+            using var sfd = new SaveFileDialog
+            {
+                Title = "Save Output",
+                Filter = "Text Files (*.txt)|*.txt|All files (*.*)|*.*",
+                FileName = $"DragonScope_Output_{DateTime.Now:yyyyMMdd_HHmmss}.txt",
+                InitialDirectory = GetLogsDir()
+            };
+            if (sfd.ShowDialog() == DialogResult.OK)
+            {
+                File.WriteAllText(sfd.FileName, textBoxOutput.Text);
+                MessageBox.Show($"Saved output to:\n{sfd.FileName}", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
         }
     }
 }

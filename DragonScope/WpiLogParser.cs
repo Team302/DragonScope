@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Text;
+﻿using System.Text;
 
 namespace WpiLogLib
 {
@@ -16,120 +13,244 @@ namespace WpiLogLib
     public class WpiLogParser
     {
         public Dictionary<ushort, WpiLogEntry> Entries { get; private set; } = new();
+        public List<string>? Filters { get; set; } = new();
 
-        public void Load(string path)
+        private readonly List<WpiLogEntry> _completedEntries = new();
+        private int _startCount;
+        private int _finishCount;
+
+        public void Load(string path, Action<string>? logCallback = null)
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read);
             using var reader = new BinaryReader(stream);
 
-            int resyncAttempts = 0;
-            const int maxResync = 1000;
+            // Validate the header (read bytes, not chars)
+            string header = Encoding.ASCII.GetString(reader.ReadBytes(6));
+            if (header != "WPILOG")
+            {
+                throw new Exception("Invalid wpilog file: Missing WPILOG header.");
+            }
 
+            ushort version = reader.ReadUInt16();
+            if (version != 0x0100)
+            {
+                throw new Exception($"Unsupported wpilog version: {version:X}");
+            }
+
+            int extraHeaderLength = reader.ReadInt32();
+            if (extraHeaderLength > 0)
+            {
+                // Extra header length is in bytes; decode from bytes
+                string extraHeader = Encoding.UTF8.GetString(reader.ReadBytes(extraHeaderLength));
+                // Process extra header if needed
+            }
+
+            // Process records
             while (reader.BaseStream.Position < reader.BaseStream.Length)
             {
                 long recordStart = reader.BaseStream.Position;
 
-                if (!TryReadByte(reader, out byte recordType))
-                    break;
-
                 try
                 {
-                    switch (recordType)
+                    byte headerLengthField = reader.ReadByte();
+
+                    int entryIdLength = (headerLengthField & 0b00000011) + 1;
+                    int payloadSizeLength = ((headerLengthField >> 2) & 0b00000011) + 1;
+                    int timestampLength = ((headerLengthField >> 4) & 0b00000111) + 1;
+
+                    int entryId = ReadVariableLengthInt(reader, entryIdLength);
+                    int payloadSize = ReadVariableLengthInt(reader, payloadSizeLength);
+                    long timestamp = ReadVariableLengthLong(reader, timestampLength);
+
+                    if (entryId == 0)
                     {
-                        case 0x00: ReadStartEntry(reader); break;
-                        case 0x01: reader.ReadUInt16(); reader.ReadUInt64(); break;
-                        case 0x02: reader.ReadUInt16(); reader.ReadUInt64(); _ = ReadString(reader); break;
-
-                        default:
-                            ReadDataRecord(reader, recordType); // try to parse regardless
-                            break;
-
+                        ProcessControlRecord(reader, payloadSize, logCallback);
                     }
-
-                    resyncAttempts = 0; // reset on successful read
+                    else
+                    {
+                        ProcessDataRecord(reader, entryId, timestamp, payloadSize);
+                    }
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show($"⚠️ Error at 0x{recordStart:X}: {ex.Message}");
-
-                    resyncAttempts++;
-                    if (resyncAttempts > maxResync)
-                        throw new Exception("Too many consecutive resync attempts. File may be corrupt.");
-
-                    // Move forward one byte and try again
                     reader.BaseStream.Position = recordStart + 1;
                 }
             }
+
+            if (Entries.Count > 0)
+            {
+                _completedEntries.AddRange(Entries.Values);
+                Entries.Clear();
+            }
+
+            logCallback?.Invoke($"Control summary: start={_startCount}, finish={_finishCount}, completed={_completedEntries.Count}");
         }
 
-
-        public void ExportToCsv(string path)
+        public void ExportToCsv(string outputPath, Action<string>? logCallback = null)
         {
-            using var writer = new StreamWriter(path);
+            using var writer = new StreamWriter(outputPath);
             writer.WriteLine("Timestamp,Name,Value");
+            int count = 0;
+
+            foreach (var entry in _completedEntries)
+            {
+                if (!ShouldInclude(entry.Name)) continue;
+
+                foreach (var (timestamp, value) in entry.Values)
+                {
+                    string valStr = FormatValue(entry.Type, value);
+                    writer.WriteLine($"{timestamp},{entry.Name},{valStr}");
+                    if (++count % 10000 == 0)
+                        logCallback?.Invoke($"Exported {count} records...");
+                }
+            }
 
             foreach (var entry in Entries.Values)
             {
+                if (!ShouldInclude(entry.Name)) continue;
+
                 foreach (var (timestamp, value) in entry.Values)
                 {
-                    writer.WriteLine($"{timestamp},{entry.Name},{value}");
+                    string valStr = FormatValue(entry.Type, value);
+                    writer.WriteLine($"{timestamp},{entry.Name},{valStr}");
+                    if (++count % 10000 == 0)
+                        logCallback?.Invoke($"Exported {count} records...");
                 }
             }
+
+            logCallback?.Invoke($"Export complete. {count} records written.");
+        }
+        private int ReadVariableLengthInt(BinaryReader reader, int length)
+        {
+            int value = 0;
+            for (int i = 0; i < length; i++)
+            {
+                value |= reader.ReadByte() << (8 * i);
+            }
+            return value;
         }
 
-        private void ReadStartEntry(BinaryReader reader)
+        private long ReadVariableLengthLong(BinaryReader reader, int length)
         {
-            ushort id = reader.ReadUInt16();
-            string type = ReadString(reader);
-            string name = ReadString(reader);
-            string metadata = ReadString(reader);
-
-            Entries[id] = new WpiLogEntry { Id = id, Name = name, Type = type };
+            long value = 0;
+            for (int i = 0; i < length; i++)
+            {
+                value |= (long)reader.ReadByte() << (8 * i);
+            }
+            return value;
         }
 
-        private void ReadDataRecord(BinaryReader reader, byte recordType)
+        private void ProcessControlRecord(BinaryReader reader, int payloadSize, Action<string>? logCallback)
         {
-            ushort id = reader.ReadUInt16();
-            ulong timestamp = reader.ReadUInt64();
-            byte length = reader.ReadByte();
-            byte[] data = reader.ReadBytes(length);
+            long payloadEnd = reader.BaseStream.Position + payloadSize;
 
-            if (!Entries.TryGetValue(id, out var entry))
-                return; // unknown entry, skip
+            byte controlType = reader.ReadByte();
+            switch (controlType)
+            {
+                case 0: // Start
+                    _startCount++;
+                    int entryId = reader.ReadInt32();
+                    string entryName = ReadString(reader);
+                    string entryType = ReadString(reader);
+                    string metadata = ReadString(reader);
+
+                    if (Entries.TryGetValue((ushort)entryId, out var existing))
+                    {
+                        _completedEntries.Add(existing);
+                        logCallback?.Invoke($"Archived existing entry {entryId} on Start.");
+                    }
+
+                    Entries[(ushort)entryId] = new WpiLogEntry
+                    {
+                        Id = (ushort)entryId,
+                        Name = entryName,
+                        Type = entryType
+                    };
+                    break;
+
+                case 1: // Finish
+                    _finishCount++;
+                    entryId = reader.ReadInt32();
+
+                    if (Entries.Remove((ushort)entryId, out var finishedEntry))
+                    {
+                        _completedEntries.Add(finishedEntry);
+                        logCallback?.Invoke($"Finished entry {entryId}.");
+                    }
+                    else
+                    {
+                        logCallback?.Invoke($"Finish for unknown entry {entryId}.");
+                    }
+                    break;
+
+                case 2: // Set Metadata
+                    entryId = reader.ReadInt32();
+                    string newMetadata = ReadString(reader);
+                    if (Entries.TryGetValue((ushort)entryId, out var entry))
+                    {
+                        // Metadata can be stored or processed as needed
+                    }
+                    break;
+
+                default:
+                    throw new Exception($"Unknown control record type: {controlType}");
+            }
+
+            // Align to payload end to avoid desync if we mis-read any field inside
+            reader.BaseStream.Position = payloadEnd;
+        }
+
+        private bool ShouldInclude(string name) =>
+            Filters == null || Filters.Count == 0 || Filters.Any(f => name.Contains(f, StringComparison.OrdinalIgnoreCase));
+
+        private static string FormatValue(string type, object value) =>
+            type switch
+            {
+                "double" => ((double)value).ToString("G17"),
+                "float" => ((float)value).ToString("G9"),
+                "int64" => value.ToString(),
+                "int32" => value.ToString(),
+                "boolean" => (bool)value ? "1" : "0",
+                "string" => "\"" + value.ToString()?.Replace("\"", "\"\"") + "\"",
+                "raw" => value.ToString() ?? "",
+                _ => value.ToString() ?? ""
+            };
+
+        private void ProcessDataRecord(BinaryReader reader, int entryId, long timestamp, int payloadSize)
+        {
+            byte[] payload = reader.ReadBytes(payloadSize);
+
+            if (!Entries.TryGetValue((ushort)entryId, out var entry))
+                return;
 
             object? value = entry.Type switch
             {
-                "double" when data.Length >= 8 => BitConverter.ToDouble(data, 0),
-                "int64" when data.Length >= 8 => BitConverter.ToInt64(data, 0),
-                "boolean" when data.Length >= 1 => data[0] != 0,
-                "string" => Encoding.UTF8.GetString(data),
+                "double" when payload.Length >= 8 => BitConverter.ToDouble(payload, 0),
+                "int64" when payload.Length >= 8 => BitConverter.ToInt64(payload, 0),
+                "boolean" when payload.Length >= 1 => payload[0] != 0,
+                "string" => Encoding.UTF8.GetString(payload),
                 _ => null
             };
 
             if (value != null)
-                entry.Values.Add((timestamp, value));
+            {
+                entry.Values.Add(((ulong)timestamp, value));
+            }
         }
 
+        // IMPORTANT: length prefix is in BYTES; decode from bytes with UTF-8
         private static string ReadString(BinaryReader reader)
         {
-            if (!TryReadByte(reader, out byte len))
-                return "";
-            byte[] bytes = reader.ReadBytes(len);
-            return Encoding.UTF8.GetString(bytes);
-        }
+            int byteLength = reader.ReadInt32();
+            if (byteLength < 0) throw new Exception("Negative string length");
+            if (byteLength == 0) return string.Empty;
 
-        private static bool TryReadByte(BinaryReader reader, out byte value)
-        {
-            try
-            {
-                value = reader.ReadByte();
-                return true;
-            }
-            catch (EndOfStreamException)
-            {
-                value = 0;
-                return false;
-            }
+            var bytes = reader.ReadBytes(byteLength);
+            if (bytes.Length != byteLength)
+                throw new EndOfStreamException("Unexpected end of stream while reading string.");
+
+            return Encoding.UTF8.GetString(bytes);
         }
     }
 }

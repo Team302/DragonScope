@@ -2,6 +2,9 @@
 {
     partial class Form1
     {
+        private System.ComponentModel.IContainer components = null;
+        private System.Windows.Forms.Button btnSaveOutput;
+
         private System.Windows.Forms.Button btnOpenCsv;
         private System.Windows.Forms.Button btnOpenXml;
         private System.Windows.Forms.Label lblCsvFile;
@@ -16,14 +19,14 @@
             progressBar1 = new ProgressBar();
             textBoxOutput = new RichTextBox();
             HootLoad = new Button();
+            btnSaveOutput = new Button();
             SuspendLayout();
             // 
             // btnOpenCsv
             // 
-            btnOpenCsv.Location = new Point(11, 49);
-            btnOpenCsv.Margin = new Padding(3, 4, 3, 4);
+            btnOpenCsv.Location = new Point(10, 37);
             btnOpenCsv.Name = "btnOpenCsv";
-            btnOpenCsv.Size = new Size(86, 31);
+            btnOpenCsv.Size = new Size(75, 23);
             btnOpenCsv.TabIndex = 1;
             btnOpenCsv.Text = "Open CSV";
             btnOpenCsv.UseVisualStyleBackColor = true;
@@ -31,10 +34,9 @@
             // 
             // btnOpenXml
             // 
-            btnOpenXml.Location = new Point(11, 11);
-            btnOpenXml.Margin = new Padding(3, 4, 3, 4);
+            btnOpenXml.Location = new Point(10, 8);
             btnOpenXml.Name = "btnOpenXml";
-            btnOpenXml.Size = new Size(86, 31);
+            btnOpenXml.Size = new Size(75, 23);
             btnOpenXml.TabIndex = 0;
             btnOpenXml.Text = "Open XML";
             btnOpenXml.UseVisualStyleBackColor = true;
@@ -43,50 +45,63 @@
             // lblCsvFile
             // 
             lblCsvFile.AutoSize = true;
-            lblCsvFile.Location = new Point(103, 56);
+            lblCsvFile.Location = new Point(90, 42);
             lblCsvFile.Name = "lblCsvFile";
-            lblCsvFile.Size = new Size(0, 20);
+            lblCsvFile.Size = new Size(0, 15);
             lblCsvFile.TabIndex = 2;
             // 
             // lblXmlFile
             // 
             lblXmlFile.AutoSize = true;
-            lblXmlFile.Location = new Point(103, 18);
+            lblXmlFile.Location = new Point(90, 14);
             lblXmlFile.Name = "lblXmlFile";
-            lblXmlFile.Size = new Size(0, 20);
+            lblXmlFile.Size = new Size(0, 15);
             lblXmlFile.TabIndex = 3;
             // 
             // progressBar1
             // 
-            progressBar1.Location = new Point(698, 11);
-            progressBar1.Margin = new Padding(3, 4, 3, 4);
+            progressBar1.Location = new Point(611, 8);
             progressBar1.Name = "progressBar1";
-            progressBar1.Size = new Size(202, 31);
+            progressBar1.Size = new Size(177, 23);
             progressBar1.TabIndex = 5;
             // 
             // textBoxOutput
             // 
-            textBoxOutput.Location = new Point(11, 99);
+            textBoxOutput.Location = new Point(10, 74);
+            textBoxOutput.Margin = new Padding(3, 2, 3, 2);
             textBoxOutput.Name = "textBoxOutput";
-            textBoxOutput.Size = new Size(890, 489);
+            textBoxOutput.Size = new Size(779, 368);
             textBoxOutput.TabIndex = 6;
             textBoxOutput.Text = "";
             // 
             // HootLoad
             // 
-            HootLoad.Location = new Point(806, 47);
+            HootLoad.Location = new Point(705, 35);
+            HootLoad.Margin = new Padding(3, 2, 3, 2);
             HootLoad.Name = "HootLoad";
-            HootLoad.Size = new Size(94, 29);
+            HootLoad.Size = new Size(82, 22);
             HootLoad.TabIndex = 7;
             HootLoad.Text = "HootLoad";
             HootLoad.UseVisualStyleBackColor = true;
             HootLoad.Click += HootLoad_Click;
             // 
+            // btnSaveOutput
+            // 
+            btnSaveOutput.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnSaveOutput.AutoSize = true;
+            btnSaveOutput.Location = new Point(589, 37);
+            btnSaveOutput.Name = "btnSaveOutput";
+            btnSaveOutput.Size = new Size(110, 30);
+            btnSaveOutput.TabIndex = 999;
+            btnSaveOutput.Text = "Save Output...";
+            btnSaveOutput.UseVisualStyleBackColor = true;
+            btnSaveOutput.Click += SaveOutputToTextFile_Click;
+            // 
             // Form1
             // 
-            AutoScaleDimensions = new SizeF(8F, 20F);
+            AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(912, 600);
+            ClientSize = new Size(798, 450);
             Controls.Add(HootLoad);
             Controls.Add(btnOpenXml);
             Controls.Add(textBoxOutput);
@@ -94,9 +109,9 @@
             Controls.Add(lblXmlFile);
             Controls.Add(lblCsvFile);
             Controls.Add(btnOpenCsv);
-            Margin = new Padding(3, 4, 3, 4);
+            Controls.Add(btnSaveOutput);
             Name = "Form1";
-            Text = "Dragon Scope";
+            Text = "DragonScope";
             ResumeLayout(false);
             PerformLayout();
         }
