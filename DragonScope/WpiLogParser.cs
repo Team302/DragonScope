@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Globalization;
 
 namespace WpiLogLib
 {
@@ -99,8 +100,12 @@ namespace WpiLogLib
 
                 foreach (var (timestamp, value) in entry.Values)
                 {
+                    // Convert microseconds -> seconds and always show a decimal point
+                    double seconds = timestamp / 1_000_000.0;
+                    string tsStr = seconds.ToString("0.######", CultureInfo.InvariantCulture);
+
                     string valStr = FormatValue(entry.Type, value);
-                    writer.WriteLine($"{timestamp},{entry.Name},{valStr}");
+                    writer.WriteLine($"{tsStr},{entry.Name},{valStr}");
                     if (++count % 10000 == 0)
                         logCallback?.Invoke($"Exported {count} records...");
                 }
@@ -112,8 +117,11 @@ namespace WpiLogLib
 
                 foreach (var (timestamp, value) in entry.Values)
                 {
+                    double seconds = timestamp / 1_000_000.0;
+                    string tsStr = seconds.ToString("0.######", CultureInfo.InvariantCulture);
+
                     string valStr = FormatValue(entry.Type, value);
-                    writer.WriteLine($"{timestamp},{entry.Name},{valStr}");
+                    writer.WriteLine($"{tsStr},{entry.Name},{valStr}");
                     if (++count % 10000 == 0)
                         logCallback?.Invoke($"Exported {count} records...");
                 }

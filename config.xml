@@ -5,5 +5,16 @@
     <ExcludedValue Name="/FaultField" />
     <ExcludedValue Name="/Fault_SupplyCurrLimit" />
     <ExcludedValue Name="/Fault_StatorCurrLimit" />
-    <CANDiviceAlias LogName="TalonFX-17" Alias="ARM_Motor"/>
+    <CANDiviceAlias LogName="TalonFX-7" Alias="Climber"/>
+
+    <CANDiviceAlias LogName="TalonFX-17" Alias="Arm"/>
+    <CANDiviceAlias LogName="TalonFX-4" Alias="Elevator-Leader"/>
+    <CANDiviceAlias LogName="TalonFX-16" Alias="Elevator-Follower"/>
+    <CANDiviceAlias LogName="TalonFXS-18" Alias="Coral"/>
+    <CANDiviceAlias LogName="TalonFXS-19" Alias="Algae"/>
+    <CANDiviceAlias LogName="CANdi-17" Alias="Arm-Candi"/>
+    <CANDiviceAlias LogName="CANRange" Alias="Elevator-CANRange"/>
+
+
+
 </Config>
