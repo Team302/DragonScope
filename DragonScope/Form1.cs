@@ -49,6 +49,50 @@ namespace DragonScope
             public string SourceFile { get; init; } = ""; // optional: which file produced it
         }
 
+        // NEW: Delete-all-logs handler
+        private void DeleteAllLogs_Click(object? sender, EventArgs e)
+        {
+            try
+            {
+                var dir = GetLogsDir();
+                if (!Directory.Exists(dir))
+                {
+                    MessageBox.Show("Logs folder does not exist.", "Delete Logs", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                var confirm = MessageBox.Show(
+                    $"This will permanently delete all files and subfolders in:\n{dir}\n\nAre you sure?",
+                    "Delete Logs",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning,
+                    MessageBoxDefaultButton.Button2);
+
+                if (confirm != DialogResult.Yes) return;
+
+                int filesDeleted = 0, foldersDeleted = 0, errors = 0;
+
+                foreach (var file in Directory.GetFiles(dir))
+                {
+                    try { File.Delete(file); filesDeleted++; } catch { errors++; }
+                }
+                foreach (var sub in Directory.GetDirectories(dir))
+                {
+                    try { Directory.Delete(sub, true); foldersDeleted++; } catch { errors++; }
+                }
+
+                MessageBox.Show(
+                    $"Deleted {filesDeleted} file(s) and {foldersDeleted} folder(s).{(errors > 0 ? $" {errors} item(s) could not be deleted." : "")}",
+                    "Delete Logs",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to delete logs: {ex.Message}", "Delete Logs", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
         private void btnOpenCsv_Click(object sender, EventArgs e)
         {
             textBoxOutput.Text = "";

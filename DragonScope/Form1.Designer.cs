@@ -9,6 +9,7 @@
         private System.Windows.Forms.Button btnOpenXml;
         private System.Windows.Forms.Label lblCsvFile;
         private System.Windows.Forms.Label lblXmlFile;
+        private System.Windows.Forms.Button btnDeleteLogs;
 
         private void InitializeComponent()
         {
@@ -20,6 +21,7 @@
             textBoxOutput = new RichTextBox();
             HootLoad = new Button();
             btnSaveOutput = new Button();
+            btnDeleteLogs = new Button();
             SuspendLayout();
             // 
             // btnOpenCsv
@@ -97,11 +99,21 @@
             btnSaveOutput.UseVisualStyleBackColor = true;
             btnSaveOutput.Click += SaveOutputToTextFile_Click;
             // 
+            // btnDeleteLogs
+            // 
+            btnDeleteLogs.Location = new Point(10, 450);
+            btnDeleteLogs.Name = "btnDeleteLogs";
+            btnDeleteLogs.Size = new Size(75, 23);
+            btnDeleteLogs.TabIndex = 8;
+            btnDeleteLogs.Text = "Delete Logs";
+            btnDeleteLogs.UseVisualStyleBackColor = true;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(798, 450);
+            Controls.Add(btnDeleteLogs);
             Controls.Add(HootLoad);
             Controls.Add(btnOpenXml);
             Controls.Add(textBoxOutput);
