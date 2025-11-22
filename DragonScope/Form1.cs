@@ -1,52 +1,58 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Forms;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Xml.Linq;
 using WpiLogLib;
+using System.Drawing;
+using System.Collections.Generic;
+using System.Text;
+using System.Threading;
 
 namespace DragonScope
 {
     public partial class Form1 : Form
     {
+        private PlotForm? _plotForm;
+
+        private readonly Dictionary<string, List<(double t, double v)>> _csvSeries = new();
+        private List<ParsedCondition> _lastConditions = new();
+        private bool _multiFileMode = false;
+
         public Form1()
         {
             InitializeComponent();
             var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("DragonScope.icon.ico");
             if (stream != null)
-            {
                 this.Icon = new Icon(stream);
-            }
         }
 
-        private Dictionary<string, (string RangeHigh, string RangeLow, string priority)> xmlDataRange;
-        private Dictionary<string, (string FlagState, string priority)> xmlDataBool;
-        private Dictionary<string, string> xmlAlias;
-        private List<string> m_excludedStrings = new List<string>();
+        private void btnOpenPlot_Click(object sender, EventArgs e)
+        {
+            if (_plotForm == null || _plotForm.IsDisposed)
+            {
+                _plotForm = new PlotForm();
+                _plotForm.Show(this);
+            }
+            _plotForm.UpdateData(_csvSeries, _lastConditions);
+            _plotForm.Focus();
+        }
+
+        private Dictionary<string, (string RangeHigh, string RangeLow, string priority)> xmlDataRange = new();
+        private Dictionary<string, (string FlagState, string priority)> xmlDataBool = new();
+        private Dictionary<string, string> xmlAlias = new();
+        private List<string> m_excludedStrings = new();
         private bool m_xmlInit = false;
         string m_owletExecutablePath = string.Empty;
         string m_currentxmlType = "";
-        Stopwatch m_stopWatch = new Stopwatch();
+        Stopwatch m_stopWatch = new();
 
-        private enum m_xmlDataType
-        {
-            TYPE_BOOLEAN = 0,
-            TYPE_RANGE = 1,
-            TYPE_EXCLUDED = 2,
-            TYPE_INVALID = -1
-        }
-
-        private enum ConditionKind { BoolTrue = 1, RangeOutOfBounds = 2, OpenEnded = 4 }
-
-        private sealed class ParsedCondition
-        {
-            public string Name { get; init; } = "";
-            public float Start { get; init; }
-            public float? End { get; init; }
-            public int Priority { get; init; }
-            public ConditionKind Kind { get; init; }
-            public string SourceFile { get; init; } = "";
-        }
+        private enum m_xmlDataType { TYPE_BOOLEAN = 0, TYPE_RANGE = 1, TYPE_EXCLUDED = 2, TYPE_INVALID = -1 }
 
         private void btnDeleteLogs_Click(object? sender, EventArgs e)
         {
@@ -69,7 +75,6 @@ namespace DragonScope
                 if (confirm != DialogResult.Yes) return;
 
                 int filesDeleted = 0, foldersDeleted = 0, errors = 0;
-
                 foreach (var file in Directory.GetFiles(dir))
                 {
                     try { File.Delete(file); filesDeleted++; } catch { errors++; }
@@ -79,11 +84,8 @@ namespace DragonScope
                     try { Directory.Delete(sub, true); foldersDeleted++; } catch { errors++; }
                 }
 
-                MessageBox.Show(
-                    $"Deleted {filesDeleted} file(s) and {foldersDeleted} folder(s).{(errors > 0 ? $" {errors} item(s) could not be deleted." : "")}",
-                    "Delete Logs",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information);
+                MessageBox.Show($"Deleted {filesDeleted} file(s) and {foldersDeleted} folder(s).{(errors > 0 ? $" {errors} item(s) could not be deleted." : "")}",
+                    "Delete Logs", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
@@ -94,31 +96,34 @@ namespace DragonScope
         private void btnOpenCsv_Click(object sender, EventArgs e)
         {
             textBoxOutput.Text = "";
-            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            using var openFileDialog = new OpenFileDialog
             {
-                openFileDialog.Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*";
-                openFileDialog.RestoreDirectory = true;
-                if (openFileDialog.ShowDialog() == DialogResult.OK)
-                {
-                    ParseCsvFile(openFileDialog.FileName);
-                    lblCsvFile.Text = openFileDialog.FileName;
-                    m_stopWatch.Restart();
-                }
+                Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+                RestoreDirectory = true
+            };
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                _multiFileMode = false;
+                ParseCsvFile(openFileDialog.FileName);
+                lblCsvFile.Text = openFileDialog.FileName;
+                m_stopWatch.Restart();
+                if (_plotForm != null && !_plotForm.IsDisposed)
+                    _plotForm.UpdateData(_csvSeries, _lastConditions);
             }
         }
 
         private void btnOpenXml_Click(object sender, EventArgs e)
         {
-            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            using var openFileDialog = new OpenFileDialog
             {
-                openFileDialog.Filter = "XML files (*.xml)|*.xml|All files (*.*)|*.*";
-                openFileDialog.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + "\\Documents\\GitHub\\DragonScope";
-                if (openFileDialog.ShowDialog() == DialogResult.OK)
-                {
-                    ParseXmlFile(openFileDialog.FileName);
-                    lblXmlFile.Text = openFileDialog.FileName;
-                    m_xmlInit = true;
-                }
+                Filter = "XML files (*.xml)|*.xml|All files (*.*)|*.*",
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + "\\Documents\\GitHub\\DragonScope"
+            };
+            if (openFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                ParseXmlFile(openFileDialog.FileName);
+                lblXmlFile.Text = openFileDialog.FileName;
+                m_xmlInit = true;
             }
         }
 
@@ -129,72 +134,77 @@ namespace DragonScope
                 MessageBox.Show("Please load the XML file first.");
                 return;
             }
+
             var activeConditions = new Dictionary<string, float>();
             var lines = File.ReadAllLines(filePath);
             float robotenable = GetRobotEnableTime(lines);
 
-            int parsedLines = 0;
+            BuildSeriesFromCsv(lines, sourceSuffix: _multiFileMode ? Path.GetFileNameWithoutExtension(filePath) : null);
+            _lastConditions = ParseCsvLinesToConditionsAligned(lines, sourceFile: Path.GetFileNameWithoutExtension(filePath), out _);
 
+            int parsedLines = 0;
             for (int it = 0; it < lines.Length; it++)
             {
                 string line = lines[it];
                 var values = line.Split(',');
-
                 if (values.Length > 2)
                 {
-                    if (float.TryParse(values[0], out _))
+                    if (float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
                         parsedLines++;
-
                     var currentxmlIndex = GetTypeFromXml(values[1]);
                     string displayName = GetAlias(values[1]);
                     switch (currentxmlIndex)
                     {
                         case m_xmlDataType.TYPE_BOOLEAN:
-                            var (flagState, boolPriority) = xmlDataBool[m_currentxmlType];
-                            if (values[2] == flagState)
                             {
-                                if (!activeConditions.ContainsKey(values[1]) &&
-                                    float.TryParse(values[0], out float timeValue))
+                                var (flagState, boolPriority) = xmlDataBool[m_currentxmlType];
+                                if (values[2] == flagState)
                                 {
-                                    activeConditions[values[1]] = timeValue - robotenable;
+                                    if (!activeConditions.ContainsKey(values[1]) &&
+                                        float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float timeValue))
+                                    {
+                                        activeConditions[values[1]] = timeValue - robotenable;
+                                    }
                                 }
-                            }
-                            else if (activeConditions.ContainsKey(values[1]))
-                            {
-                                if (float.TryParse(values[0], out float timeValue) &&
-                                    int.TryParse(boolPriority, out int boolPriorityInt))
+                                else if (activeConditions.ContainsKey(values[1]))
                                 {
-                                    float startTime = activeConditions[values[1]];
-                                    float endTime = timeValue - robotenable;
-                                    WriteToTextBox($"\"{displayName}\" was true from {startTime} to {endTime}", boolPriorityInt);
-                                    activeConditions.Remove(values[1]);
+                                    if (float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float timeValue) &&
+                                        int.TryParse(boolPriority, out int boolPriorityInt))
+                                    {
+                                        float startTime = activeConditions[values[1]];
+                                        float endTime = timeValue - robotenable;
+                                        WriteToTextBox($"\"{displayName}\" was true from {startTime} to {endTime}", boolPriorityInt);
+                                        activeConditions.Remove(values[1]);
+                                    }
                                 }
                             }
                             break;
-
                         case m_xmlDataType.TYPE_RANGE:
-                            if (float.TryParse(values[2], out float intValue))
                             {
-                                var (rangeHigh, rangeLow, rangePriority) = xmlDataRange[m_currentxmlType];
-                                if (float.TryParse(rangeLow, out float low) && float.TryParse(rangeHigh, out float high))
+                                if (float.TryParse(values[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float intValue))
                                 {
-                                    if (intValue < low || intValue > high)
+                                    var (rangeHigh, rangeLow, rangePriority) = xmlDataRange[m_currentxmlType];
+                                    if (float.TryParse(rangeLow, NumberStyles.Float, CultureInfo.InvariantCulture, out float low) &&
+                                        float.TryParse(rangeHigh, NumberStyles.Float, CultureInfo.InvariantCulture, out float high))
                                     {
-                                        if (!activeConditions.ContainsKey(values[1]) &&
-                                            float.TryParse(values[0], out float timeValue))
+                                        if (intValue < low || intValue > high)
                                         {
-                                            activeConditions[values[1]] = timeValue - robotenable;
+                                            if (!activeConditions.ContainsKey(values[1]) &&
+                                                float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float timeValue))
+                                            {
+                                                activeConditions[values[1]] = timeValue - robotenable;
+                                            }
                                         }
-                                    }
-                                    else if (activeConditions.ContainsKey(values[1]))
-                                    {
-                                        if (float.TryParse(values[0], out float timeValue) &&
-                                            int.TryParse(rangePriority, out int rangePriorityInt))
+                                        else if (activeConditions.ContainsKey(values[1]))
                                         {
-                                            float startTime = activeConditions[values[1]];
-                                            float endTime = timeValue - robotenable;
-                                            WriteToTextBox($"\"{displayName}\" was out of bounds from {startTime} to {endTime}", rangePriorityInt);
-                                            activeConditions.Remove(values[1]);
+                                            if (float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float timeValue) &&
+                                                int.TryParse(rangePriority, out int rangePriorityInt))
+                                            {
+                                                float startTime = activeConditions[values[1]];
+                                                float endTime = timeValue - robotenable;
+                                                WriteToTextBox($"\"{displayName}\" was out of bounds from {startTime} to {endTime}", rangePriorityInt);
+                                                activeConditions.Remove(values[1]);
+                                            }
                                         }
                                     }
                                 }
@@ -217,6 +227,50 @@ namespace DragonScope
             progressBar1.Value = 100;
             m_stopWatch.Stop();
             WriteToTextBox(parsedLines + " entries parsed in " + m_stopWatch.Elapsed.TotalSeconds + " seconds", 0);
+
+            if (_plotForm != null && !_plotForm.IsDisposed)
+                _plotForm.UpdateData(_csvSeries, _lastConditions);
+        }
+
+        private void BuildSeriesFromCsv(string[] lines, string? sourceSuffix = null)
+        {
+            if (!_multiFileMode)
+                _csvSeries.Clear();
+
+            float robotEnable = GetRobotEnableTime(lines);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var line = lines[i];
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var values = line.Split(',');
+                if (values.Length <= 2) continue;
+                if (!double.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double ts))
+                    continue;
+
+                string longName = values[1];
+                string displayName = GetAlias(longName);
+                if (sourceSuffix != null)
+                    displayName = $"{displayName} [{sourceSuffix}]";
+
+                string rawVal = values[2].Trim();
+                double numeric;
+                if (double.TryParse(rawVal, NumberStyles.Float, CultureInfo.InvariantCulture, out double val))
+                    numeric = val;
+                else if (string.Equals(rawVal, "true", StringComparison.OrdinalIgnoreCase) || rawVal == "1")
+                    numeric = 1;
+                else if (string.Equals(rawVal, "false", StringComparison.OrdinalIgnoreCase) || rawVal == "0")
+                    numeric = 0;
+                else
+                    continue;
+
+                double t = ts - robotEnable;
+                if (!_csvSeries.TryGetValue(displayName, out var list))
+                {
+                    list = new List<(double t, double v)>();
+                    _csvSeries[displayName] = list;
+                }
+                list.Add((t, numeric));
+            }
         }
 
         private m_xmlDataType GetTypeFromXml(string name)
@@ -229,9 +283,11 @@ namespace DragonScope
 
         private void ParseXmlFile(string filePath)
         {
-            xmlDataRange = new Dictionary<string, (string RangeHigh, string RangeLow, string priority)>();
-            xmlDataBool = new Dictionary<string, (string FlagState, string priority)>();
-            xmlAlias = new Dictionary<string, string>();
+            xmlDataRange.Clear();
+            xmlDataBool.Clear();
+            xmlAlias.Clear();
+            m_excludedStrings.Clear();
+
             var xmlDoc = XDocument.Load(filePath);
             foreach (var element in xmlDoc.Descendants("ExcludedValue"))
             {
@@ -295,11 +351,11 @@ namespace DragonScope
         {
             switch (priority)
             {
-                case 1: textBoxOutput.SelectionColor = System.Drawing.Color.Red; break;
-                case 2: textBoxOutput.SelectionColor = System.Drawing.Color.Orange; break;
-                case 3: textBoxOutput.SelectionColor = System.Drawing.Color.Yellow; break;
-                case 4: textBoxOutput.SelectionColor = System.Drawing.Color.Purple; break;
-                default: textBoxOutput.SelectionColor = System.Drawing.Color.Black; break;
+                case 1: textBoxOutput.SelectionColor = Color.Red; break;
+                case 2: textBoxOutput.SelectionColor = Color.Orange; break;
+                case 3: textBoxOutput.SelectionColor = Color.Yellow; break;
+                case 4: textBoxOutput.SelectionColor = Color.Purple; break;
+                default: textBoxOutput.SelectionColor = Color.Black; break;
             }
             if (!textBoxOutput.Text.Contains(text))
                 textBoxOutput.AppendText(text + Environment.NewLine);
@@ -331,6 +387,7 @@ namespace DragonScope
 
                 if (selected.Length == 1)
                 {
+                    _multiFileMode = false;
                     string targetPath = selected[0];
                     string logsDir = GetLogsDir();
                     string wpilogFileName = Path.GetFileNameWithoutExtension(targetPath) + ".wpilog";
@@ -341,12 +398,191 @@ namespace DragonScope
                     return;
                 }
 
+                _multiFileMode = true;
                 await ProcessMultipleHootFilesAsync(selected);
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"An error occurred: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private bool TryConvertHootToWpi(string hootLogPath, string wpilogPath, out string diagnostic)
+        {
+            var sb = new StringBuilder();
+            diagnostic = "";
+            try
+            {
+                if (string.IsNullOrWhiteSpace(m_owletExecutablePath) || !File.Exists(m_owletExecutablePath))
+                {
+                    diagnostic = "Owlet executable path is not set or missing.";
+                    return false;
+                }
+                if (!File.Exists(hootLogPath))
+                {
+                    diagnostic = $"Input hoot file not found: {hootLogPath}";
+                    return false;
+                }
+
+                Directory.CreateDirectory(Path.GetDirectoryName(wpilogPath)!);
+                string arguments = $"-f wpilog -F \"{hootLogPath}\" \"{wpilogPath}\"";
+                sb.AppendLine($"[Owlet] Executing: {m_owletExecutablePath} {arguments}");
+
+                using var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = m_owletExecutablePath,
+                        Arguments = arguments,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    },
+                    EnableRaisingEvents = true
+                };
+
+                var stdOut = new StringBuilder();
+                var stdErr = new StringBuilder();
+                using var outputWait = new ManualResetEvent(false);
+                using var errorWait = new ManualResetEvent(false);
+
+                process.OutputDataReceived += (_, e) =>
+                {
+                    if (e.Data == null) outputWait.Set();
+                    else stdOut.AppendLine(e.Data);
+                };
+                process.ErrorDataReceived += (_, e) =>
+                {
+                    if (e.Data == null) errorWait.Set();
+                    else stdErr.AppendLine(e.Data);
+                };
+
+                if (!process.Start())
+                {
+                    diagnostic = "Failed to start Owlet process.";
+                    return false;
+                }
+
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                if (!process.WaitForExit(120_000))
+                {
+                    try { process.Kill(); } catch { }
+                    diagnostic = "Owlet conversion timed out.";
+                    return false;
+                }
+
+                outputWait.WaitOne();
+                errorWait.WaitOne();
+
+                sb.AppendLine("[Owlet] ExitCode: " + process.ExitCode);
+                if (stdOut.Length > 0) sb.AppendLine("[Owlet STDOUT]").AppendLine(stdOut.ToString());
+                if (stdErr.Length > 0) sb.AppendLine("[Owlet STDERR]").AppendLine(stdErr.ToString());
+
+                if (process.ExitCode != 0)
+                {
+                    diagnostic = $"Owlet failed (ExitCode {process.ExitCode})." +
+                                 (stdErr.Length > 0 ? Environment.NewLine + stdErr.ToString() : "");
+                    return false;
+                }
+
+                if (!File.Exists(wpilogPath))
+                {
+                    string altArgs = $"-f=wpilog -F=\"{hootLogPath}\" \"{wpilogPath}\"";
+                    sb.AppendLine($"[Owlet] Primary output missing, retrying with alt args: {altArgs}");
+
+                    using var retry = new Process
+                    {
+                        StartInfo = new ProcessStartInfo
+                        {
+                            FileName = m_owletExecutablePath,
+                            Arguments = altArgs,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        }
+                    };
+                    retry.Start();
+                    string retryOut = retry.StandardOutput.ReadToEnd();
+                    string retryErr = retry.StandardError.ReadToEnd();
+                    retry.WaitForExit();
+                    sb.AppendLine("[Owlet Retry ExitCode] " + retry.ExitCode);
+                    if (retryOut.Length > 0) sb.AppendLine("[Retry STDOUT]").AppendLine(retryOut);
+                    if (retryErr.Length > 0) sb.AppendLine("[Retry STDERR]").AppendLine(retryErr);
+
+                    if (retry.ExitCode != 0 || !File.Exists(wpilogPath))
+                    {
+                        diagnostic = "Owlet did not produce wpilog file.";
+                        return false;
+                    }
+                }
+
+                var fi = new FileInfo(wpilogPath);
+                if (fi.Length == 0)
+                {
+                    diagnostic = "Generated wpilog file is empty.";
+                    return false;
+                }
+
+                diagnostic = sb.ToString();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                diagnostic = sb.AppendLine("Exception: " + ex.Message).ToString();
+                return false;
+            }
+        }
+
+        private void ConvertHootLogToWpilog(string hootLogPath, string wpilogPath)
+        {
+            m_stopWatch.Restart();
+            progressBar1.Value = 0;
+
+            if (!TryEnsureOwletPathVerified(out string verifyMsg))
+            {
+                if (!string.IsNullOrEmpty(verifyMsg))
+                    MessageBox.Show(verifyMsg, "Owlet verification", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+                using OpenFileDialog openFileDialog = new()
+                {
+                    Filter = "Executable Files (*.exe)|*.exe|All files (*.*)|*.*",
+                    Title = "Select Owlet Executable",
+                    InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                };
+                if (openFileDialog.ShowDialog() != DialogResult.OK) return;
+                var selectedPath = openFileDialog.FileName;
+                if (!File.Exists(selectedPath))
+                {
+                    MessageBox.Show("Selected file does not exist.");
+                    return;
+                }
+                var sha1 = ComputeSha1(selectedPath);
+                SaveOwletConfig(selectedPath, sha1);
+                m_owletExecutablePath = selectedPath;
+            }
+
+            if (!File.Exists(hootLogPath))
+            {
+                MessageBox.Show("Hoot file not found.");
+                return;
+            }
+
+            if (!TryConvertHootToWpi(hootLogPath, wpilogPath, out string diag))
+            {
+                WriteToTextBox("Owlet conversion failed.", 1);
+                WriteToTextBox(diag, 1);
+                MessageBox.Show(diag, "Owlet Conversion Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            WriteToTextBox("Owlet conversion succeeded.", 0);
+            WriteToTextBox(diag, 0);
+            progressBar1.Value = 50;
+            ConvertWpilogToCsv(wpilogPath, wpilogPath.Replace(".wpilog", ".csv"));
         }
 
         private async Task ProcessMultipleHootFilesAsync(string[] hootPaths)
@@ -384,22 +620,55 @@ namespace DragonScope
             string logsDir = GetLogsDir();
             Directory.CreateDirectory(logsDir);
 
-            var tasks = new List<Task<(List<ParsedCondition> Conditions, int LinesParsed)>>();
+            var tasks = new List<Task<(List<ParsedCondition> Conditions, int LinesParsed, string[] CsvLines, string Base)>>();
+
             foreach (var hoot in hootPaths)
-                tasks.Add(Task.Run(() => ConvertAndParseFile(hoot, logsDir)));
+            {
+                tasks.Add(Task.Run(() =>
+                {
+                    string baseName = Path.GetFileNameWithoutExtension(hoot);
+                    string wpilogPath = Path.Combine(logsDir, baseName + ".wpilog");
+                    string csvPath = Path.Combine(logsDir, baseName + ".csv");
+
+                    if (!TryConvertHootToWpi(hoot, wpilogPath, out string convDiag))
+                    {
+                        lock (_csvSeries)
+                        {
+                            WriteToTextBox($"Conversion failed for {baseName}", 1);
+                            WriteToTextBox(convDiag, 1);
+                        }
+                        return (new List<ParsedCondition>(), 0, Array.Empty<string>(), baseName);
+                    }
+
+                    var parser = new WpiLogParser();
+                    parser.Load(wpilogPath);
+                    parser.ExportToCsv(csvPath);
+                    var lines = File.ReadAllLines(csvPath);
+                    var conditions = ParseCsvLinesToConditionsAligned(lines, sourceFile: baseName, out int parsedCount);
+                    return (conditions, parsedCount, lines, baseName);
+                }));
+            }
 
             var results = await Task.WhenAll(tasks);
             progressBar1.Value = 80;
 
-            var all = results.SelectMany(r => r.Conditions).ToList();
-            int totalLinesParsed = results.Sum(r => r.LinesParsed);
+            _csvSeries.Clear();
+            var allConditions = new List<ParsedCondition>();
+            int totalLinesParsed = 0;
+            foreach (var r in results)
+            {
+                if (r.CsvLines.Length == 0) continue;
+                totalLinesParsed += r.LinesParsed;
+                allConditions.AddRange(r.Conditions);
+                BuildSeriesFromCsv(r.CsvLines, sourceSuffix: r.Base);
+            }
 
-            var ordered = all
+            _lastConditions = allConditions
                 .OrderBy(c => c.End ?? c.Start)
                 .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            foreach (var c in ordered)
+            foreach (var c in _lastConditions)
             {
                 string msg = c.Kind switch
                 {
@@ -414,62 +683,9 @@ namespace DragonScope
             progressBar1.Value = 100;
             m_stopWatch.Stop();
             WriteToTextBox($"Processed {hootPaths.Length} hoot files ({totalLinesParsed} lines) in {m_stopWatch.Elapsed.TotalSeconds:F2} seconds", 0);
-        }
 
-        private (List<ParsedCondition> Conditions, int LinesParsed) ConvertAndParseFile(string hootLogPath, string logsDir)
-        {
-            string baseName = Path.GetFileNameWithoutExtension(hootLogPath);
-            string wpilogPath = Path.Combine(logsDir, baseName + ".wpilog");
-            string csvPath = Path.Combine(logsDir, baseName + ".csv");
-
-            RunOwletConvert(hootLogPath, wpilogPath);
-
-            var parser = new WpiLogParser();
-            parser.Load(wpilogPath);
-            parser.ExportToCsv(csvPath);
-
-            var lines = File.ReadAllLines(csvPath);
-            var conditions = ParseCsvLinesToConditionsAligned(lines, sourceFile: baseName, out int parsedCount);
-            return (conditions, parsedCount);
-        }
-
-        private void RunOwletConvert(string hootLogPath, string wpilogPath)
-        {
-            if (!File.Exists(hootLogPath))
-                throw new FileNotFoundException("Hoot file not found", hootLogPath);
-
-            Directory.CreateDirectory(Path.GetDirectoryName(wpilogPath)!);
-
-            string arguments = $"-f wpilog -F \"{hootLogPath}\" \"{wpilogPath}\"";
-
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = m_owletExecutablePath,
-                    Arguments = arguments,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-
-            process.Start();
-            string output = process.StandardOutput.ReadToEnd();
-            string error = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-
-            if (process.ExitCode != 0)
-                throw new Exception($"Owlet conversion failed: {error}");
-        }
-
-        private (m_xmlDataType Type, string Key) ResolveTypeKey(string name)
-        {
-            foreach (var key in m_excludedStrings) if (name.Contains(key)) return (m_xmlDataType.TYPE_EXCLUDED, key);
-            foreach (var key in xmlDataRange.Keys) if (name.Contains(key)) return (m_xmlDataType.TYPE_RANGE, key);
-            foreach (var key in xmlDataBool.Keys) if (name.Contains(key)) return (m_xmlDataType.TYPE_BOOLEAN, key);
-            return (m_xmlDataType.TYPE_INVALID, "");
+            if (_plotForm != null && !_plotForm.IsDisposed)
+                _plotForm.UpdateData(_csvSeries, _lastConditions);
         }
 
         private List<ParsedCondition> ParseCsvLinesToConditionsAligned(string[] lines, string sourceFile, out int linesParsed)
@@ -488,19 +704,16 @@ namespace DragonScope
                 if (!float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float rawTime)) continue;
 
                 parsedCount++;
-
                 float t = rawTime - robotEnable;
                 string longName = values[1];
                 string displayName = GetAlias(longName);
-
                 var (type, xmlKey) = ResolveTypeKey(longName);
                 switch (type)
                 {
                     case m_xmlDataType.TYPE_BOOLEAN:
                         if (!xmlDataBool.TryGetValue(xmlKey, out var b)) break;
                         var (flagState, boolPriorityStr) = b;
-                        int priority = ParsePriorityOrDefault(boolPriorityStr, 1);
-
+                        int priority = int.TryParse(boolPriorityStr, out var pBool) ? pBool : 1;
                         if (values[2] == flagState)
                         {
                             if (!active.ContainsKey(displayName)) active[displayName] = t;
@@ -511,16 +724,13 @@ namespace DragonScope
                             active.Remove(displayName);
                         }
                         break;
-
                     case m_xmlDataType.TYPE_RANGE:
                         if (!float.TryParse(values[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float val)) break;
                         if (!xmlDataRange.TryGetValue(xmlKey, out var r)) break;
-
                         var (hiStr, loStr, prioStr) = r;
                         if (!float.TryParse(loStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float low)) break;
                         if (!float.TryParse(hiStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float high)) break;
-                        int prio = ParsePriorityOrDefault(prioStr, 2);
-
+                        int prio = int.TryParse(prioStr, out var pRange) ? pRange : 2;
                         bool oob = val < low || val > high;
                         if (oob)
                         {
@@ -532,7 +742,6 @@ namespace DragonScope
                             active.Remove(displayName);
                         }
                         break;
-
                     case m_xmlDataType.TYPE_EXCLUDED:
                         break;
                 }
@@ -544,8 +753,6 @@ namespace DragonScope
             linesParsed = parsedCount;
             return result;
         }
-
-        private static int ParsePriorityOrDefault(string s, int def) => int.TryParse(s, out var p) ? p : def;
 
         private void ConvertWpilogToCsv(string wpilogPath, string csvPath)
         {
@@ -559,78 +766,10 @@ namespace DragonScope
             catch (Exception ex)
             {
                 MessageBox.Show($"An error occurred with wpilog conversion: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
             }
+            _multiFileMode = false;
             ParseCsvFile(csvPath);
-        }
-
-        private void ConvertHootLogToWpilog(string hootLogPath, string wpilogPath)
-        {
-            m_stopWatch.Restart();
-            progressBar1.Value = 0;
-
-            if (!TryEnsureOwletPathVerified(out string errorMessage))
-            {
-                if (!string.IsNullOrEmpty(errorMessage))
-                    MessageBox.Show(errorMessage, "Owlet verification", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
-                using OpenFileDialog openFileDialog = new OpenFileDialog
-                {
-                    Filter = "Executable Files (*.exe)|*.exe|All files (*.*)|*.*",
-                    Title = "Select Owlet Executable",
-                    InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
-                };
-                if (openFileDialog.ShowDialog() == DialogResult.OK)
-                {
-                    var selectedPath = openFileDialog.FileName;
-                    if (!File.Exists(selectedPath))
-                    {
-                        MessageBox.Show("Selected file does not exist.");
-                        return;
-                    }
-                    var sha1 = ComputeSha1(selectedPath);
-                    SaveOwletConfig(selectedPath, sha1);
-                    m_owletExecutablePath = selectedPath;
-                }
-                else
-                {
-                    MessageBox.Show("Please select the Owlet executable.");
-                    return;
-                }
-            }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(wpilogPath)!);
-
-            string arguments = $"-f wpilog -F \"{hootLogPath}\" \"{wpilogPath}\"";
-            if (!File.Exists(hootLogPath))
-            {
-                MessageBox.Show("Provide valid hoot directory");
-            }
-
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = m_owletExecutablePath,
-                    Arguments = arguments,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            Console.WriteLine($"Executing: {m_owletExecutablePath} {arguments}");
-
-            process.Start();
-            string output = process.StandardOutput.ReadToEnd();
-            string error = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-            progressBar1.Value = 50;
-
-            if (process.ExitCode != 0)
-            {
-                throw new Exception($"Owlet conversion failed: {error}");
-            }
-            ConvertWpilogToCsv(wpilogPath, wpilogPath.Replace(".wpilog", ".csv"));
         }
 
         private static string GetAppDataDir()
@@ -663,7 +802,6 @@ namespace DragonScope
             sha1 = "";
             var cfg = GetOwletConfigPath();
             if (!File.Exists(cfg)) return false;
-
             var lines = File.ReadAllLines(cfg);
             if (lines.Length >= 2)
             {
@@ -725,6 +863,36 @@ namespace DragonScope
                 File.WriteAllText(sfd.FileName, textBoxOutput.Text);
                 MessageBox.Show($"Saved output to:\n{sfd.FileName}", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
+        }
+
+        private void RunOwletConvert(string hootLogPath, string wpilogPath)
+        {
+            if (!TryConvertHootToWpi(hootLogPath, wpilogPath, out string diag))
+            {
+                WriteToTextBox($"Owlet conversion failed: {Path.GetFileName(hootLogPath)}", 1);
+                WriteToTextBox(diag, 1);
+                throw new Exception("Owlet conversion failed. See output for details.");
+            }
+            WriteToTextBox($"Owlet conversion ok: {Path.GetFileName(hootLogPath)}", 0);
+        }
+
+        private (m_xmlDataType Type, string Key) ResolveTypeKey(string name)
+        {
+            // Determines which XML classification the log entry name matches.
+            // Returns the matched type and the key used to lookup range/bool metadata.
+            foreach (var key in m_excludedStrings)
+                if (!string.IsNullOrEmpty(key) && name.Contains(key, StringComparison.Ordinal))
+                    return (m_xmlDataType.TYPE_EXCLUDED, key);
+
+            foreach (var key in xmlDataRange.Keys)
+                if (!string.IsNullOrEmpty(key) && name.Contains(key, StringComparison.Ordinal))
+                    return (m_xmlDataType.TYPE_RANGE, key);
+
+            foreach (var key in xmlDataBool.Keys)
+                if (!string.IsNullOrEmpty(key) && name.Contains(key, StringComparison.Ordinal))
+                    return (m_xmlDataType.TYPE_BOOLEAN, key);
+
+            return (m_xmlDataType.TYPE_INVALID, "");
         }
     }
 }
