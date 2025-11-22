@@ -4,13 +4,12 @@ namespace DragonScope
     {
         private System.ComponentModel.IContainer components = null;
         private ScottPlot.WinForms.FormsPlot formsPlot;
-        private System.Windows.Forms.CheckedListBox seriesList;
+        private System.Windows.Forms.TextBox txtSearch;
+        private System.Windows.Forms.ListBox lstSeries;
         private System.Windows.Forms.CheckBox chkShowErrors;
         private System.Windows.Forms.CheckBox chkGroupErrorSpans;
-        private System.Windows.Forms.ComboBox cmbSeriesPicker;
-        private System.Windows.Forms.Button btnPlotSelected;
-        private System.Windows.Forms.Panel rightPanel;
-        private System.Windows.Forms.Panel topPickerPanel;
+        private System.Windows.Forms.Button btnSelectAll;
+        private System.Windows.Forms.Button btnClearSelection;
 
         protected override void Dispose(bool disposing)
         {
@@ -21,117 +20,97 @@ namespace DragonScope
 
         private void InitializeComponent()
         {
-            this.formsPlot = new ScottPlot.WinForms.FormsPlot();
-            this.seriesList = new System.Windows.Forms.CheckedListBox();
-            this.chkShowErrors = new System.Windows.Forms.CheckBox();
-            this.chkGroupErrorSpans = new System.Windows.Forms.CheckBox();
-            this.cmbSeriesPicker = new System.Windows.Forms.ComboBox();
-            this.btnPlotSelected = new System.Windows.Forms.Button();
-            this.rightPanel = new System.Windows.Forms.Panel();
-            this.topPickerPanel = new System.Windows.Forms.Panel();
-            this.rightPanel.SuspendLayout();
-            this.topPickerPanel.SuspendLayout();
-            this.SuspendLayout();
+            components = new System.ComponentModel.Container();
+            formsPlot = new ScottPlot.WinForms.FormsPlot();
+            txtSearch = new System.Windows.Forms.TextBox();
+            lstSeries = new System.Windows.Forms.ListBox();
+            chkShowErrors = new System.Windows.Forms.CheckBox();
+            chkGroupErrorSpans = new System.Windows.Forms.CheckBox();
+            btnSelectAll = new System.Windows.Forms.Button();
+            btnClearSelection = new System.Windows.Forms.Button();
+            SuspendLayout();
             // 
             // formsPlot
             // 
-            this.formsPlot.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.formsPlot.Location = new System.Drawing.Point(0, 0);
-            this.formsPlot.Name = "formsPlot";
-            this.formsPlot.Size = new System.Drawing.Size(1000, 560);
-            this.formsPlot.TabIndex = 0;
+            formsPlot.Location = new System.Drawing.Point(250, 12);
+            formsPlot.Name = "formsPlot";
+            formsPlot.Size = new System.Drawing.Size(900, 600);
+            formsPlot.TabIndex = 0;
             // 
-            // seriesList
+            // txtSearch
             // 
-            this.seriesList.CheckOnClick = true;
-            this.seriesList.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.seriesList.FormattingEnabled = true;
-            this.seriesList.Location = new System.Drawing.Point(0, 124);
-            this.seriesList.Name = "seriesList";
-            this.seriesList.Size = new System.Drawing.Size(220, 436);
-            this.seriesList.TabIndex = 4;
-            this.seriesList.ItemCheck += new System.Windows.Forms.ItemCheckEventHandler(this.seriesList_ItemCheck);
+            txtSearch.Location = new System.Drawing.Point(12, 12);
+            txtSearch.Name = "txtSearch";
+            txtSearch.PlaceholderText = "Search series...";
+            txtSearch.Size = new System.Drawing.Size(232, 27);
+            txtSearch.TabIndex = 1;
+            txtSearch.TextChanged += txtSearch_TextChanged;
+            // 
+            // lstSeries
+            // 
+            lstSeries.Location = new System.Drawing.Point(12, 45);
+            lstSeries.Name = "lstSeries";
+            lstSeries.SelectionMode = System.Windows.Forms.SelectionMode.MultiExtended;
+            lstSeries.Size = new System.Drawing.Size(232, 324);
+            lstSeries.TabIndex = 2;
+            lstSeries.SelectedIndexChanged += lstSeries_SelectedIndexChanged;
             // 
             // chkShowErrors
             // 
-            this.chkShowErrors.Dock = System.Windows.Forms.DockStyle.Top;
-            this.chkShowErrors.Location = new System.Drawing.Point(0, 74);
-            this.chkShowErrors.Name = "chkShowErrors";
-            this.chkShowErrors.Size = new System.Drawing.Size(220, 25);
-            this.chkShowErrors.TabIndex = 2;
-            this.chkShowErrors.Text = "Show error intervals";
-            this.chkShowErrors.Checked = true;
-            this.chkShowErrors.UseVisualStyleBackColor = true;
-            this.chkShowErrors.CheckedChanged += new System.EventHandler(this.RenderPlot);
+            chkShowErrors.AutoSize = true;
+            chkShowErrors.Location = new System.Drawing.Point(12, 380);
+            chkShowErrors.Name = "chkShowErrors";
+            chkShowErrors.Size = new System.Drawing.Size(107, 24);
+            chkShowErrors.TabIndex = 3;
+            chkShowErrors.Text = "Show Events";
+            chkShowErrors.UseVisualStyleBackColor = true;
             // 
             // chkGroupErrorSpans
             // 
-            this.chkGroupErrorSpans.Dock = System.Windows.Forms.DockStyle.Top;
-            this.chkGroupErrorSpans.Location = new System.Drawing.Point(0, 99);
-            this.chkGroupErrorSpans.Name = "chkGroupErrorSpans";
-            this.chkGroupErrorSpans.Size = new System.Drawing.Size(220, 25);
-            this.chkGroupErrorSpans.TabIndex = 3;
-            this.chkGroupErrorSpans.Text = "Group spans by priority";
-            this.chkGroupErrorSpans.Checked = true;
-            this.chkGroupErrorSpans.UseVisualStyleBackColor = true;
-            this.chkGroupErrorSpans.CheckedChanged += new System.EventHandler(this.RenderPlot);
+            chkGroupErrorSpans.AutoSize = true;
+            chkGroupErrorSpans.Location = new System.Drawing.Point(12, 410);
+            chkGroupErrorSpans.Name = "chkGroupErrorSpans";
+            chkGroupErrorSpans.Size = new System.Drawing.Size(154, 24);
+            chkGroupErrorSpans.TabIndex = 4;
+            chkGroupErrorSpans.Text = "Group Intervals By Prio";
+            chkGroupErrorSpans.UseVisualStyleBackColor = true;
             // 
-            // cmbSeriesPicker
+            // btnSelectAll
             // 
-            this.cmbSeriesPicker.Dock = System.Windows.Forms.DockStyle.Top;
-            this.cmbSeriesPicker.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.cmbSeriesPicker.FormattingEnabled = true;
-            this.cmbSeriesPicker.Location = new System.Drawing.Point(0, 0);
-            this.cmbSeriesPicker.Name = "cmbSeriesPicker";
-            this.cmbSeriesPicker.Size = new System.Drawing.Size(220, 23);
-            this.cmbSeriesPicker.TabIndex = 0;
+            btnSelectAll.Location = new System.Drawing.Point(12, 450);
+            btnSelectAll.Name = "btnSelectAll";
+            btnSelectAll.Size = new System.Drawing.Size(110, 30);
+            btnSelectAll.TabIndex = 5;
+            btnSelectAll.Text = "Select All";
+            btnSelectAll.UseVisualStyleBackColor = true;
+            btnSelectAll.Click += btnSelectAll_Click;
             // 
-            // btnPlotSelected
+            // btnClearSelection
             // 
-            this.btnPlotSelected.Dock = System.Windows.Forms.DockStyle.Top;
-            this.btnPlotSelected.Location = new System.Drawing.Point(0, 23);
-            this.btnPlotSelected.Name = "btnPlotSelected";
-            this.btnPlotSelected.Size = new System.Drawing.Size(220, 28);
-            this.btnPlotSelected.TabIndex = 1;
-            this.btnPlotSelected.Text = "Plot Selected";
-            this.btnPlotSelected.UseVisualStyleBackColor = true;
-            this.btnPlotSelected.Click += new System.EventHandler(this.btnPlotSelected_Click);
-            // 
-            // rightPanel
-            // 
-            this.rightPanel.Controls.Add(this.seriesList);
-            this.rightPanel.Controls.Add(this.chkGroupErrorSpans);
-            this.rightPanel.Controls.Add(this.chkShowErrors);
-            this.rightPanel.Controls.Add(this.topPickerPanel);
-            this.rightPanel.Dock = System.Windows.Forms.DockStyle.Right;
-            this.rightPanel.Location = new System.Drawing.Point(1000, 0);
-            this.rightPanel.Name = "rightPanel";
-            this.rightPanel.Padding = new System.Windows.Forms.Padding(0);
-            this.rightPanel.Size = new System.Drawing.Size(220, 560);
-            this.rightPanel.TabIndex = 5;
-            // 
-            // topPickerPanel
-            // 
-            this.topPickerPanel.Controls.Add(this.btnPlotSelected);
-            this.topPickerPanel.Controls.Add(this.cmbSeriesPicker);
-            this.topPickerPanel.Dock = System.Windows.Forms.DockStyle.Top;
-            this.topPickerPanel.Location = new System.Drawing.Point(0, 0);
-            this.topPickerPanel.Name = "topPickerPanel";
-            this.topPickerPanel.Size = new System.Drawing.Size(220, 74);
-            this.topPickerPanel.TabIndex = 1;
+            btnClearSelection.Location = new System.Drawing.Point(134, 450);
+            btnClearSelection.Name = "btnClearSelection";
+            btnClearSelection.Size = new System.Drawing.Size(110, 30);
+            btnClearSelection.TabIndex = 6;
+            btnClearSelection.Text = "Clear";
+            btnClearSelection.UseVisualStyleBackColor = true;
+            btnClearSelection.Click += btnClearSelection_Click;
             // 
             // PlotForm
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(1220, 560);
-            this.Controls.Add(this.formsPlot);
-            this.Controls.Add(this.rightPanel);
-            this.Name = "PlotForm";
-            this.Text = "Data Plot";
-            this.rightPanel.ResumeLayout(false);
-            this.topPickerPanel.ResumeLayout(false);
-            this.ResumeLayout(false);
+            AutoScaleDimensions = new System.Drawing.SizeF(8F, 20F);
+            AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            ClientSize = new System.Drawing.Size(1165, 626);
+            Controls.Add(btnClearSelection);
+            Controls.Add(btnSelectAll);
+            Controls.Add(chkGroupErrorSpans);
+            Controls.Add(chkShowErrors);
+            Controls.Add(lstSeries);
+            Controls.Add(txtSearch);
+            Controls.Add(formsPlot);
+            Name = "PlotForm";
+            Text = "DragonScope Plot";
+            ResumeLayout(false);
+            PerformLayout();
         }
     }
 }
