@@ -30,6 +30,7 @@ namespace DragonScope
             var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("DragonScope.icon.ico");
             if (stream != null)
                 this.Icon = new Icon(stream);
+            LoadXml();
         }
 
         private void btnOpenPlot_Click(object sender, EventArgs e)
@@ -112,19 +113,33 @@ namespace DragonScope
             }
         }
 
-        private void btnOpenXml_Click(object sender, EventArgs e)
+        private void LoadXml()
         {
-            using var openFileDialog = new OpenFileDialog
+            string defaultPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + "\\Documents\\GitHub\\DragonScope\\config.xml";
+            if (File.Exists(defaultPath))
             {
-                Filter = "XML files (*.xml)|*.xml|All files (*.*)|*.*",
-                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + "\\Documents\\GitHub\\DragonScope"
-            };
-            if (openFileDialog.ShowDialog() == DialogResult.OK)
-            {
-                ParseXmlFile(openFileDialog.FileName);
-                lblXmlFile.Text = openFileDialog.FileName;
-                m_xmlInit = true;
+                ParseXmlFile(defaultPath);
+                lblXmlFile.Text = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + "\\Documents\\GitHub\\DragonScope\\config.xml";
             }
+            else
+
+            {
+                using var openFileDialog = new OpenFileDialog
+                {
+                    Filter = "XML files (*.xml)|*.xml|All files (*.*)|*.*",
+                    InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + "\\Documents\\GitHub\\DragonScope"
+                };
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    ParseXmlFile(openFileDialog.FileName);
+                    lblXmlFile.Text = openFileDialog.FileName;
+                }
+                else
+                {
+                    MessageBox.Show("No XML Selected, functionality limited");
+                }
+            }
+            m_xmlInit = true;
         }
 
         private void ParseCsvFile(string filePath)
@@ -349,6 +364,12 @@ namespace DragonScope
 
         private void WriteToTextBox(string text, int priority)
         {
+            if (textBoxOutput.InvokeRequired)
+            {
+                textBoxOutput.BeginInvoke(new Action(() => WriteToTextBox(text, priority)));
+                return;
+            }
+
             switch (priority)
             {
                 case 1: textBoxOutput.SelectionColor = Color.Red; break;
@@ -641,6 +662,7 @@ namespace DragonScope
                     }
 
                     var parser = new WpiLogParser();
+                    WriteToTextBox(convDiag, 0);
                     parser.Load(wpilogPath);
                     parser.ExportToCsv(csvPath);
                     var lines = File.ReadAllLines(csvPath);
