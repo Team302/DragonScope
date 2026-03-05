@@ -7,13 +7,24 @@
     <ExcludedValue Name="/Fault_StatorCurrLimit" />
     <CANDiviceAlias LogName="TalonFX-7" Alias="Climber"/>
 
-    <CANDiviceAlias LogName="TalonFX-17" Alias="Arm"/>
-    <CANDiviceAlias LogName="TalonFX-4" Alias="Elevator-Leader"/>
-    <CANDiviceAlias LogName="TalonFX-16" Alias="Elevator-Follower"/>
-    <CANDiviceAlias LogName="TalonFXS-18" Alias="Coral"/>
-    <CANDiviceAlias LogName="TalonFXS-19" Alias="Algae"/>
-    <CANDiviceAlias LogName="CANdi-17" Alias="Arm-Candi"/>
-    <CANDiviceAlias LogName="CANRange" Alias="Elevator-CANRange"/>
+    <CANDiviceAlias LogName="TalonFX-8" Alias="Launcher"/>
+    <CANDiviceAlias LogName="TalonFXS-7" Alias="Hood"/>
+    <CANDiviceAlias LogName="TalonFX-4" Alias="Transfer"/>
+    <CANDiviceAlias LogName="TalonFXS-6" Alias="Turret"/>
+    <CANDiviceAlias LogName="TalonFX-5" Alias="Indexer"/>
+    <CANDiviceAlias LogName="TalonFX-18" Alias="Agitator"/>
+    <CANDiviceAlias LogName="CANdi-7" Alias="Hood-Candi"/>
+    <CANDiviceAlias LogName="CANdi-6" Alias="Turret-Candi"/>
+
+    <CANDiviceAlias LogName="TalonFX-16" Alias="Intake"/>
+    <CANDiviceAlias LogName="TalonFXS-11" Alias="Extender"/>
+    <CANDiviceAlias LogName="CANdi-11" Alias="Intake-Candi"/>
+
+    <!--Chassis-->
+    <CANDiviceAlias LogName="TalonFX-20" Alias="FrontLeftDrive"/>
+    <CANDiviceAlias LogName="TalonFX-21" Alias="FrontLeftTurn"/>
+    <CANDiviceAlias LogName="CANCoder-21" Alias="FrontLeftCANCoder"/>
+
 
 
 
