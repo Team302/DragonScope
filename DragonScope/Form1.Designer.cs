@@ -2,10 +2,14 @@
 {
     partial class Form1
     {
+        private System.ComponentModel.IContainer components = null;
+        private System.Windows.Forms.Button btnSaveOutput;
+
         private System.Windows.Forms.Button btnOpenCsv;
         private System.Windows.Forms.Button btnOpenXml;
         private System.Windows.Forms.Label lblCsvFile;
         private System.Windows.Forms.Label lblXmlFile;
+        private System.Windows.Forms.Button btnDeleteLogs;
 
         private void InitializeComponent()
         {
@@ -16,6 +20,8 @@
             progressBar1 = new ProgressBar();
             textBoxOutput = new RichTextBox();
             HootLoad = new Button();
+            btnSaveOutput = new Button();
+            btnDeleteLogs = new Button();
             SuspendLayout();
             // 
             // btnOpenCsv
@@ -51,7 +57,7 @@
             // lblXmlFile
             // 
             lblXmlFile.AutoSize = true;
-            lblXmlFile.Location = new Point(103, 18);
+            lblXmlFile.Location = new Point(103, 19);
             lblXmlFile.Name = "lblXmlFile";
             lblXmlFile.Size = new Size(0, 20);
             lblXmlFile.TabIndex = 3;
@@ -82,11 +88,36 @@
             HootLoad.UseVisualStyleBackColor = true;
             HootLoad.Click += HootLoad_Click;
             // 
+            // btnSaveOutput
+            // 
+            btnSaveOutput.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnSaveOutput.AutoSize = true;
+            btnSaveOutput.Location = new Point(673, 49);
+            btnSaveOutput.Margin = new Padding(3, 4, 3, 4);
+            btnSaveOutput.Name = "btnSaveOutput";
+            btnSaveOutput.Size = new Size(126, 40);
+            btnSaveOutput.TabIndex = 999;
+            btnSaveOutput.Text = "Save Output...";
+            btnSaveOutput.UseVisualStyleBackColor = true;
+            btnSaveOutput.Click += SaveOutputToTextFile_Click;
+            // 
+            // btnDeleteLogs
+            // 
+            btnDeleteLogs.Location = new Point(565, 58);
+            btnDeleteLogs.Margin = new Padding(3, 4, 3, 4);
+            btnDeleteLogs.Name = "btnDeleteLogs";
+            btnDeleteLogs.Size = new Size(102, 31);
+            btnDeleteLogs.TabIndex = 0;
+            btnDeleteLogs.Text = "Clean Logs";
+            btnDeleteLogs.UseVisualStyleBackColor = true;
+            btnDeleteLogs.Click += btnDeleteLogs_Click;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(912, 600);
+            Controls.Add(btnDeleteLogs);
             Controls.Add(HootLoad);
             Controls.Add(btnOpenXml);
             Controls.Add(textBoxOutput);
@@ -94,9 +125,10 @@
             Controls.Add(lblXmlFile);
             Controls.Add(lblCsvFile);
             Controls.Add(btnOpenCsv);
+            Controls.Add(btnSaveOutput);
             Margin = new Padding(3, 4, 3, 4);
             Name = "Form1";
-            Text = "Dragon Scope";
+            Text = "DragonScope";
             ResumeLayout(false);
             PerformLayout();
         }
