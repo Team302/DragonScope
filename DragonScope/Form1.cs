@@ -349,6 +349,12 @@ namespace DragonScope
 
         private void WriteToTextBox(string text, int priority)
         {
+            if (textBoxOutput.InvokeRequired)
+            {
+                textBoxOutput.Invoke(new Action(() => WriteToTextBox(text, priority)));
+                return;
+            }
+            
             switch (priority)
             {
                 case 1: textBoxOutput.SelectionColor = Color.Red; break;
@@ -485,7 +491,7 @@ namespace DragonScope
                 {
                     diagnostic = $"Owlet failed (ExitCode {process.ExitCode})." +
                                  (stdErr.Length > 0 ? Environment.NewLine + stdErr.ToString() : "");
-                    return false;
+                    //return false;
                 }
 
                 if (!File.Exists(wpilogPath))
@@ -576,7 +582,7 @@ namespace DragonScope
                 WriteToTextBox("Owlet conversion failed.", 1);
                 WriteToTextBox(diag, 1);
                 MessageBox.Show(diag, "Owlet Conversion Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
+                //return;
             }
 
             WriteToTextBox("Owlet conversion succeeded.", 0);
