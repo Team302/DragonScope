@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -53,6 +53,39 @@ namespace DragonScope
         Stopwatch m_stopWatch = new();
 
         private enum m_xmlDataType { TYPE_BOOLEAN = 0, TYPE_RANGE = 1, TYPE_EXCLUDED = 2, TYPE_INVALID = -1 }
+
+        private void WriteProgressBar(string label, int current, int total, int barWidth = 30)
+        {
+            if (total <= 0) return;
+            double fraction = Math.Clamp((double)current / total, 0.0, 1.0);
+            int filled = (int)(fraction * barWidth);
+            int empty = barWidth - filled;
+            int percent = (int)(fraction * 100);
+
+            string bar = $"[{"█".PadRight(filled, '█')}{"░".PadRight(empty, '░')}] {percent,3}% — {label}";
+
+            if (textBoxOutput.InvokeRequired)
+            {
+                textBoxOutput.Invoke(new Action(() => WriteProgressBar(label, current, total, barWidth)));
+                return;
+            }
+
+            // Overwrite the last line if it was a progress bar, otherwise append
+            string text = textBoxOutput.Text;
+            int lastNewline = text.LastIndexOf('\n');
+            string lastLine = lastNewline >= 0 ? text[(lastNewline + 1)..] : text;
+
+            if (lastLine.TrimStart().StartsWith('[') && lastLine.Contains('█'))
+            {
+                int removeStart = lastNewline >= 0 ? lastNewline + 1 : 0;
+                textBoxOutput.Select(removeStart, textBoxOutput.TextLength - removeStart);
+                textBoxOutput.SelectedText = "";
+            }
+
+            textBoxOutput.SelectionColor = Color.DodgerBlue;
+            textBoxOutput.AppendText(bar + Environment.NewLine);
+            textBoxOutput.ScrollToCaret();
+        }
 
         private void btnDeleteLogs_Click(object? sender, EventArgs e)
         {
@@ -139,7 +172,10 @@ namespace DragonScope
             var lines = File.ReadAllLines(filePath);
             float robotenable = GetRobotEnableTime(lines);
 
+            WriteProgressBar("Building series from CSV...", 0, 1);
             BuildSeriesFromCsv(lines, sourceSuffix: _multiFileMode ? Path.GetFileNameWithoutExtension(filePath) : null);
+            WriteProgressBar("Building series from CSV...", 1, 1);
+
             _lastConditions = ParseCsvLinesToConditionsAligned(lines, sourceFile: Path.GetFileNameWithoutExtension(filePath), out _);
 
             int parsedLines = 0;
@@ -218,8 +254,14 @@ namespace DragonScope
                     }
                     m_currentxmlType = "";
                     progressBar1.Value = (int)((float)it / lines.Length * 100);
+
+                    // Update text progress bar every 5% of lines
+                    if (it % Math.Max(1, lines.Length / 20) == 0)
+                        WriteProgressBar($"Parsing CSV ({Path.GetFileNameWithoutExtension(filePath)})...", it + 1, lines.Length);
                 }
             }
+
+            WriteProgressBar($"Parsing CSV ({Path.GetFileNameWithoutExtension(filePath)})...", lines.Length, lines.Length);
 
             foreach (var condition in activeConditions)
                 WriteToTextBox($"\"{GetAlias(condition.Key)}\" started at {condition.Value} and did not end.", 4);
@@ -577,6 +619,9 @@ namespace DragonScope
                 return;
             }
 
+            string baseName = Path.GetFileNameWithoutExtension(hootLogPath);
+            WriteProgressBar($"Converting {baseName}: hoot → wpilog...", 0, 3);
+
             if (!TryConvertHootToWpi(hootLogPath, wpilogPath, out string diag))
             {
                 WriteToTextBox("Owlet conversion failed.", 1);
@@ -585,10 +630,14 @@ namespace DragonScope
                 //return;
             }
 
+            WriteProgressBar($"Converting {baseName}: hoot → wpilog...", 1, 3);
             WriteToTextBox("Owlet conversion succeeded.", 0);
             WriteToTextBox(diag, 0);
             progressBar1.Value = 50;
+
+            WriteProgressBar($"Converting {baseName}: wpilog → CSV...", 2, 3);
             ConvertWpilogToCsv(wpilogPath, wpilogPath.Replace(".wpilog", ".csv"));
+            WriteProgressBar($"Done processing {baseName}", 3, 3);
         }
 
         private async Task ProcessMultipleHootFilesAsync(string[] hootPaths)
@@ -626,6 +675,13 @@ namespace DragonScope
             string logsDir = GetLogsDir();
             Directory.CreateDirectory(logsDir);
 
+            int totalFiles = hootPaths.Length;
+            // Total steps: convert each file (totalFiles) + parse each file (totalFiles) + merge (1)
+            int totalSteps = totalFiles * 2 + 1;
+            int completedSteps = 0;
+
+            WriteProgressBar($"Starting batch: {totalFiles} hoot file(s)...", 0, totalSteps);
+
             var tasks = new List<Task<(List<ParsedCondition> Conditions, int LinesParsed, string[] CsvLines, string Base)>>();
 
             foreach (var hoot in hootPaths)
@@ -636,27 +692,47 @@ namespace DragonScope
                     string wpilogPath = Path.Combine(logsDir, baseName + ".wpilog");
                     string csvPath = Path.Combine(logsDir, baseName + ".csv");
 
+                    // Step: convert hoot → wpilog
                     if (!TryConvertHootToWpi(hoot, wpilogPath, out string convDiag))
                     {
-                        lock (_csvSeries)
+                        this.Invoke(() =>
                         {
                             WriteToTextBox($"Conversion failed for {baseName}", 1);
                             WriteToTextBox(convDiag, 1);
-                        }
+                            Interlocked.Increment(ref completedSteps);
+                            WriteProgressBar($"Convert failed: {baseName}", completedSteps, totalSteps);
+                        });
                         return (new List<ParsedCondition>(), 0, Array.Empty<string>(), baseName);
                     }
 
+                    this.Invoke(() =>
+                    {
+                        Interlocked.Increment(ref completedSteps);
+                        WriteProgressBar($"Converted: {baseName} (hoot → wpilog)", completedSteps, totalSteps);
+                    });
+
+                    // Step: wpilog → CSV + parse
                     var parser = new WpiLogParser();
                     parser.Load(wpilogPath);
                     parser.ExportToCsv(csvPath);
                     var lines = File.ReadAllLines(csvPath);
                     var conditions = ParseCsvLinesToConditionsAligned(lines, sourceFile: baseName, out int parsedCount);
+
+                    this.Invoke(() =>
+                    {
+                        Interlocked.Increment(ref completedSteps);
+                        WriteProgressBar($"Parsed CSV: {baseName} ({parsedCount} lines)", completedSteps, totalSteps);
+                    });
+
                     return (conditions, parsedCount, lines, baseName);
                 }));
             }
 
             var results = await Task.WhenAll(tasks);
             progressBar1.Value = 80;
+
+            // Step: merge all results
+            WriteProgressBar("Merging series data...", completedSteps, totalSteps);
 
             _csvSeries.Clear();
             var allConditions = new List<ParsedCondition>();
@@ -673,6 +749,9 @@ namespace DragonScope
                 .OrderBy(c => c.End ?? c.Start)
                 .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            completedSteps = totalSteps;
+            WriteProgressBar($"Done — {totalFiles} file(s), {totalLinesParsed} lines merged", completedSteps, totalSteps);
 
             foreach (var c in _lastConditions)
             {
