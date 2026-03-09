@@ -5,6 +5,9 @@
     <ExcludedValue Name="/FaultField" />
     <ExcludedValue Name="/Fault_SupplyCurrLimit" />
     <ExcludedValue Name="/Fault_StatorCurrLimit" />
+    <ExcludedValue Name="/Fault_BridgeBrownout" />
+    <ExcludedValue Name="/ForwardHardLimit" />
+    <ExcludedValue Name="/ReverseHardLimit" />
 
     <!-- CAN Device Aliases -->
     <CANDiviceAlias LogName="TalonFX-20" Alias="FrontLeftDriveMotor"/>
