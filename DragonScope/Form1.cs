@@ -13,6 +13,9 @@ using System.Drawing;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
+using System.Buffers;
+using System.Runtime;
+using System.Collections.Concurrent;
 
 namespace DragonScope
 {
@@ -20,7 +23,7 @@ namespace DragonScope
     {
         private PlotForm? _plotForm;
 
-        private readonly Dictionary<string, List<(double t, double v)>> _csvSeries = new();
+        private Dictionary<string, List<(double t, double v)>> _csvSeries = new();
         private List<ParsedCondition> _lastConditions = new();
         private bool _multiFileMode = false;
 
@@ -49,8 +52,12 @@ namespace DragonScope
         private List<string> m_excludedStrings = new();
         private bool m_xmlInit = false;
         string m_owletExecutablePath = string.Empty;
-        string m_currentxmlType = "";
         Stopwatch m_stopWatch = new();
+
+        // Cached lookup structures — rebuilt when XML is loaded
+        private ConcurrentDictionary<string, string> _aliasCache = new();
+        private ConcurrentDictionary<string, (m_xmlDataType Type, string Key)> _typeKeyCache = new();
+        private HashSet<string> _writtenMessages = new(StringComparer.Ordinal);
 
         private enum m_xmlDataType { TYPE_BOOLEAN = 0, TYPE_RANGE = 1, TYPE_EXCLUDED = 2, TYPE_INVALID = -1 }
 
@@ -126,9 +133,10 @@ namespace DragonScope
             }
         }
 
-        private void btnOpenCsv_Click(object sender, EventArgs e)
+        private async void btnOpenCsv_Click(object sender, EventArgs e)
         {
             textBoxOutput.Text = "";
+            _writtenMessages.Clear();
             using var openFileDialog = new OpenFileDialog
             {
                 Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
@@ -137,9 +145,9 @@ namespace DragonScope
             if (openFileDialog.ShowDialog() == DialogResult.OK)
             {
                 _multiFileMode = false;
-                ParseCsvFile(openFileDialog.FileName);
-                lblCsvFile.Text = openFileDialog.FileName;
                 m_stopWatch.Restart();
+                await ParseCsvFileAsync(openFileDialog.FileName);
+                lblCsvFile.Text = openFileDialog.FileName;
                 if (_plotForm != null && !_plotForm.IsDisposed)
                     _plotForm.UpdateData(_csvSeries, _lastConditions);
             }
@@ -160,7 +168,13 @@ namespace DragonScope
             }
         }
 
-        private void ParseCsvFile(string filePath)
+        /// <summary>
+        /// Parses a CSV file using parallel workers for series building and condition scanning.
+        /// The file is read once, robot-enable is found, then three parallel tasks run:
+        /// 1) BuildSeriesFromCsv (chunked), 2) ParseCsvLinesToConditionsAligned (chunked),
+        /// 3) Progress reporting on the UI thread.
+        /// </summary>
+        private async Task ParseCsvFileAsync(string filePath)
         {
             if (!m_xmlInit)
             {
@@ -168,159 +182,332 @@ namespace DragonScope
                 return;
             }
 
-            var activeConditions = new Dictionary<string, float>();
-            var lines = File.ReadAllLines(filePath);
-            float robotenable = GetRobotEnableTime(lines);
+            progressBar1.Value = 0;
+            WriteProgressBar("Reading CSV file...", 0, 4);
 
-            WriteProgressBar("Building series from CSV...", 0, 1);
-            BuildSeriesFromCsv(lines, sourceSuffix: _multiFileMode ? Path.GetFileNameWithoutExtension(filePath) : null);
-            WriteProgressBar("Building series from CSV...", 1, 1);
+            // Read file on a background thread to keep UI responsive
+            var lines = await Task.Run(() => File.ReadAllLines(filePath));
+            float robotEnable = GetRobotEnableTime(lines);
+            string baseName = Path.GetFileNameWithoutExtension(filePath);
+            string? sourceSuffix = _multiFileMode ? baseName : null;
 
-            _lastConditions = ParseCsvLinesToConditionsAligned(lines, sourceFile: Path.GetFileNameWithoutExtension(filePath), out _);
+            WriteProgressBar("Parsing CSV (parallel)...", 1, 4);
 
-            int parsedLines = 0;
-            for (int it = 0; it < lines.Length; it++)
+            // Run series building and condition parsing in parallel
+            var seriesTask = Task.Run(() => BuildSeriesFromCsvParallel(lines, robotEnable, sourceSuffix));
+            var conditionsTask = Task.Run(() => ParseCsvLinesToConditionsParallel(lines, robotEnable, baseName));
+
+            await Task.WhenAll(seriesTask, conditionsTask);
+
+            // Merge results on UI thread
+            WriteProgressBar("Merging results...", 3, 4);
+
+            var (series, seriesLineCount) = seriesTask.Result;
+            var (conditions, conditionLineCount) = conditionsTask.Result;
+
+            if (!_multiFileMode)
+                _csvSeries.Clear();
+
+            foreach (var kvp in series)
             {
-                string line = lines[it];
-                var values = line.Split(',');
-                if (values.Length > 2)
+                if (_csvSeries.TryGetValue(kvp.Key, out var existing))
+                    existing.AddRange(kvp.Value);
+                else
+                    _csvSeries[kvp.Key] = kvp.Value;
+            }
+
+            _lastConditions = conditions;
+
+            // Write condition messages to output
+            foreach (var c in _lastConditions)
+            {
+                string msg = c.Kind switch
                 {
-                    if (float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
-                        parsedLines++;
-                    var currentxmlIndex = GetTypeFromXml(values[1]);
-                    string displayName = GetAlias(values[1]);
-                    switch (currentxmlIndex)
+                    ConditionKind.BoolTrue => $"\"{c.Name}\" was true from {c.Start} to {c.End}",
+                    ConditionKind.RangeOutOfBounds => $"\"{c.Name}\" was out of bounds from {c.Start} to {c.End}",
+                    ConditionKind.OpenEnded => $"\"{c.Name}\" started at {c.Start} and did not end.",
+                    _ => $"\"{c.Name}\" event at {c.Start}"
+                };
+                WriteToTextBox(msg, c.Priority);
+            }
+
+            progressBar1.Value = 100;
+            m_stopWatch.Stop();
+            WriteToTextBox($"{conditionLineCount} entries parsed in {m_stopWatch.Elapsed.TotalSeconds:F2} seconds", 0);
+            WriteProgressBar("Done", 4, 4);
+
+            if (_plotForm != null && !_plotForm.IsDisposed)
+                _plotForm.UpdateData(_csvSeries, _lastConditions);
+
+            // Release large array and reclaim memory
+            lines = null;
+            CompactHeap();
+        }
+
+        /// <summary>
+        /// Builds time-series data from CSV lines using Parallel.ForEach over chunks.
+        /// Each thread builds its own local dictionary, then results are merged.
+        /// </summary>
+        private (Dictionary<string, List<(double t, double v)>> Series, int LineCount) BuildSeriesFromCsvParallel(
+            string[] lines, float robotEnable, string? sourceSuffix)
+        {
+            int chunkSize = Math.Max(1000, lines.Length / Environment.ProcessorCount);
+            var partitioner = Partitioner.Create(0, lines.Length, chunkSize);
+            var localResults = new ConcurrentBag<Dictionary<string, List<(double t, double v)>>>();
+            int totalParsed = 0;
+
+            Parallel.ForEach(partitioner, range =>
+            {
+                var localSeries = new Dictionary<string, List<(double t, double v)>>();
+                int localCount = 0;
+
+                for (int i = range.Item1; i < range.Item2; i++)
+                {
+                    var line = lines[i];
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+
+                    ReadOnlySpan<char> span = line.AsSpan();
+                    int firstComma = span.IndexOf(',');
+                    if (firstComma < 0) continue;
+                    int secondComma = span[(firstComma + 1)..].IndexOf(',');
+                    if (secondComma < 0) continue;
+                    secondComma += firstComma + 1;
+
+                    ReadOnlySpan<char> tsSpan = span[..firstComma];
+                    ReadOnlySpan<char> rawValSpan = span[(secondComma + 1)..].Trim();
+
+                    if (!double.TryParse(tsSpan, NumberStyles.Float, CultureInfo.InvariantCulture, out double ts))
+                        continue;
+
+                    string longName = span[(firstComma + 1)..secondComma].ToString();
+                    string displayName = GetAliasCached(longName);
+                    if (sourceSuffix != null)
+                        displayName = $"{displayName} [{sourceSuffix}]";
+
+                    double numeric;
+                    if (double.TryParse(rawValSpan, NumberStyles.Float, CultureInfo.InvariantCulture, out double val))
+                        numeric = val;
+                    else if (rawValSpan.Equals("true", StringComparison.OrdinalIgnoreCase) || rawValSpan is "1")
+                        numeric = 1;
+                    else if (rawValSpan.Equals("false", StringComparison.OrdinalIgnoreCase) || rawValSpan is "0")
+                        numeric = 0;
+                    else
+                        continue;
+
+                    double t = ts - robotEnable;
+                    if (!localSeries.TryGetValue(displayName, out var list))
+                    {
+                        list = new List<(double t, double v)>(256);
+                        localSeries[displayName] = list;
+                    }
+                    list.Add((t, numeric));
+                    localCount++;
+                }
+
+                localResults.Add(localSeries);
+                Interlocked.Add(ref totalParsed, localCount);
+            });
+
+            // Merge all thread-local dictionaries
+            var merged = new Dictionary<string, List<(double t, double v)>>(StringComparer.Ordinal);
+            foreach (var localDict in localResults)
+            {
+                foreach (var kvp in localDict)
+                {
+                    if (merged.TryGetValue(kvp.Key, out var existing))
+                        existing.AddRange(kvp.Value);
+                    else
+                        merged[kvp.Key] = kvp.Value;
+                }
+            }
+
+            // Sort each series by time (chunks may interleave)
+            Parallel.ForEach(merged.Values, list => list.Sort((a, b) => a.t.CompareTo(b.t)));
+
+            return (merged, totalParsed);
+        }
+
+        /// <summary>
+        /// Parses CSV lines into conditions using parallel chunks.
+        /// Each chunk tracks its own active conditions; open-ended conditions at chunk
+        /// boundaries are resolved by a sequential merge pass.
+        /// </summary>
+        private (List<ParsedCondition> Conditions, int LineCount) ParseCsvLinesToConditionsParallel(
+            string[] lines, float robotEnable, string sourceFile)
+        {
+            int chunkSize = Math.Max(1000, lines.Length / Environment.ProcessorCount);
+            var partitioner = Partitioner.Create(0, lines.Length, chunkSize);
+
+            // Each chunk produces: completed conditions + open-at-end state
+            var chunkResults = new ConcurrentBag<(
+                List<ParsedCondition> Completed,
+                Dictionary<string, float> OpenAtEnd,
+                int StartIndex,
+                int EndIndex,
+                int ParsedCount)>();
+
+            Parallel.ForEach(partitioner, range =>
+            {
+                var completed = new List<ParsedCondition>();
+                var active = new Dictionary<string, float>();
+                int parsedCount = 0;
+
+                for (int i = range.Item1; i < range.Item2; i++)
+                {
+                    var line = lines[i];
+                    if (string.IsNullOrEmpty(line)) continue;
+
+                    ReadOnlySpan<char> span = line.AsSpan();
+                    int firstComma = span.IndexOf(',');
+                    if (firstComma < 0) continue;
+                    int secondComma = span[(firstComma + 1)..].IndexOf(',');
+                    if (secondComma < 0) continue;
+                    secondComma += firstComma + 1;
+
+                    ReadOnlySpan<char> tsSpan = span[..firstComma];
+                    if (!float.TryParse(tsSpan, NumberStyles.Float, CultureInfo.InvariantCulture, out float rawTime)) continue;
+
+                    parsedCount++;
+                    float t = rawTime - robotEnable;
+                    string longName = span[(firstComma + 1)..secondComma].ToString();
+                    string displayName = GetAliasCached(longName);
+                    var (type, xmlKey) = ResolveTypeKeyCached(longName);
+
+                    ReadOnlySpan<char> valueSpan = span[(secondComma + 1)..];
+
+                    switch (type)
                     {
                         case m_xmlDataType.TYPE_BOOLEAN:
+                            if (!xmlDataBool.TryGetValue(xmlKey, out var b)) break;
+                            var (flagState, boolPriorityStr) = b;
+                            int priority = int.TryParse(boolPriorityStr, out var pBool) ? pBool : 1;
+                            if (valueSpan.SequenceEqual(flagState.AsSpan()))
                             {
-                                var (flagState, boolPriority) = xmlDataBool[m_currentxmlType];
-                                if (values[2] == flagState)
-                                {
-                                    if (!activeConditions.ContainsKey(values[1]) &&
-                                        float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float timeValue))
-                                    {
-                                        activeConditions[values[1]] = timeValue - robotenable;
-                                    }
-                                }
-                                else if (activeConditions.ContainsKey(values[1]))
-                                {
-                                    if (float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float timeValue) &&
-                                        int.TryParse(boolPriority, out int boolPriorityInt))
-                                    {
-                                        float startTime = activeConditions[values[1]];
-                                        float endTime = timeValue - robotenable;
-                                        WriteToTextBox($"\"{displayName}\" was true from {startTime} to {endTime}", boolPriorityInt);
-                                        activeConditions.Remove(values[1]);
-                                    }
-                                }
+                                if (!active.ContainsKey(displayName)) active[displayName] = t;
+                            }
+                            else if (active.TryGetValue(displayName, out float start))
+                            {
+                                completed.Add(new ParsedCondition { Name = displayName, Start = start, End = t, Priority = priority, Kind = ConditionKind.BoolTrue, SourceFile = sourceFile });
+                                active.Remove(displayName);
                             }
                             break;
                         case m_xmlDataType.TYPE_RANGE:
+                            if (!float.TryParse(valueSpan, NumberStyles.Float, CultureInfo.InvariantCulture, out float val)) break;
+                            if (!xmlDataRange.TryGetValue(xmlKey, out var r)) break;
+                            var (hiStr, loStr, prioStr) = r;
+                            if (!float.TryParse(loStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float low)) break;
+                            if (!float.TryParse(hiStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float high)) break;
+                            int prio = int.TryParse(prioStr, out var pRange) ? pRange : 2;
+                            bool oob = val < low || val > high;
+                            if (oob)
                             {
-                                if (float.TryParse(values[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float intValue))
-                                {
-                                    var (rangeHigh, rangeLow, rangePriority) = xmlDataRange[m_currentxmlType];
-                                    if (float.TryParse(rangeLow, NumberStyles.Float, CultureInfo.InvariantCulture, out float low) &&
-                                        float.TryParse(rangeHigh, NumberStyles.Float, CultureInfo.InvariantCulture, out float high))
-                                    {
-                                        if (intValue < low || intValue > high)
-                                        {
-                                            if (!activeConditions.ContainsKey(values[1]) &&
-                                                float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float timeValue))
-                                            {
-                                                activeConditions[values[1]] = timeValue - robotenable;
-                                            }
-                                        }
-                                        else if (activeConditions.ContainsKey(values[1]))
-                                        {
-                                            if (float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float timeValue) &&
-                                                int.TryParse(rangePriority, out int rangePriorityInt))
-                                            {
-                                                float startTime = activeConditions[values[1]];
-                                                float endTime = timeValue - robotenable;
-                                                WriteToTextBox($"\"{displayName}\" was out of bounds from {startTime} to {endTime}", rangePriorityInt);
-                                                activeConditions.Remove(values[1]);
-                                            }
-                                        }
-                                    }
-                                }
+                                if (!active.ContainsKey(displayName)) active[displayName] = t;
+                            }
+                            else if (active.TryGetValue(displayName, out float start2))
+                            {
+                                completed.Add(new ParsedCondition { Name = displayName, Start = start2, End = t, Priority = prio, Kind = ConditionKind.RangeOutOfBounds, SourceFile = sourceFile });
+                                active.Remove(displayName);
                             }
                             break;
                         case m_xmlDataType.TYPE_EXCLUDED:
                             break;
-                        default:
-                            m_currentxmlType = string.Empty;
-                            break;
                     }
-                    m_currentxmlType = "";
-                    progressBar1.Value = (int)((float)it / lines.Length * 100);
-
-                    // Update text progress bar every 5% of lines
-                    if (it % Math.Max(1, lines.Length / 20) == 0)
-                        WriteProgressBar($"Parsing CSV ({Path.GetFileNameWithoutExtension(filePath)})...", it + 1, lines.Length);
                 }
-            }
 
-            WriteProgressBar($"Parsing CSV ({Path.GetFileNameWithoutExtension(filePath)})...", lines.Length, lines.Length);
+                chunkResults.Add((completed, active, range.Item1, range.Item2, parsedCount));
+            });
 
-            foreach (var condition in activeConditions)
-                WriteToTextBox($"\"{GetAlias(condition.Key)}\" started at {condition.Value} and did not end.", 4);
+            // Sort chunks by their original position in the file for correct sequential merge
+            var sortedChunks = chunkResults.OrderBy(c => c.StartIndex).ToList();
 
-            progressBar1.Value = 100;
-            m_stopWatch.Stop();
-            WriteToTextBox(parsedLines + " entries parsed in " + m_stopWatch.Elapsed.TotalSeconds + " seconds", 0);
+            // Merge: stitch open conditions across chunk boundaries
+            var allConditions = new List<ParsedCondition>();
+            var carryOver = new Dictionary<string, float>(); // open conditions carried from previous chunks
+            int totalParsed = 0;
 
-            if (_plotForm != null && !_plotForm.IsDisposed)
-                _plotForm.UpdateData(_csvSeries, _lastConditions);
-        }
-
-        private void BuildSeriesFromCsv(string[] lines, string? sourceSuffix = null)
-        {
-            if (!_multiFileMode)
-                _csvSeries.Clear();
-
-            float robotEnable = GetRobotEnableTime(lines);
-            for (int i = 0; i < lines.Length; i++)
+            foreach (var chunk in sortedChunks)
             {
-                var line = lines[i];
-                if (string.IsNullOrWhiteSpace(line)) continue;
-                var values = line.Split(',');
-                if (values.Length <= 2) continue;
-                if (!double.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double ts))
-                    continue;
+                totalParsed += chunk.ParsedCount;
+                allConditions.AddRange(chunk.Completed);
 
-                string longName = values[1];
-                string displayName = GetAlias(longName);
-                if (sourceSuffix != null)
-                    displayName = $"{displayName} [{sourceSuffix}]";
-
-                string rawVal = values[2].Trim();
-                double numeric;
-                if (double.TryParse(rawVal, NumberStyles.Float, CultureInfo.InvariantCulture, out double val))
-                    numeric = val;
-                else if (string.Equals(rawVal, "true", StringComparison.OrdinalIgnoreCase) || rawVal == "1")
-                    numeric = 1;
-                else if (string.Equals(rawVal, "false", StringComparison.OrdinalIgnoreCase) || rawVal == "0")
-                    numeric = 0;
-                else
-                    continue;
-
-                double t = ts - robotEnable;
-                if (!_csvSeries.TryGetValue(displayName, out var list))
+                // For each signal that was open at the end of this chunk,
+                // check if it was started in a previous chunk's carry-over
+                foreach (var kvp in chunk.OpenAtEnd)
                 {
-                    list = new List<(double t, double v)>();
-                    _csvSeries[displayName] = list;
+                    if (!carryOver.ContainsKey(kvp.Key))
+                        carryOver[kvp.Key] = kvp.Value;
+                    // If already in carryOver, keep the earlier start time
                 }
-                list.Add((t, numeric));
             }
+
+            // Now re-scan carry-over signals: they were open at the end of their chunk
+            // but might have been closed in a later chunk's completed list.
+            // Since each chunk independently tracks open/close, cross-boundary conditions
+            // that started in chunk N and ended in chunk N+1 appear as:
+            //   - chunk N: open at end with start time
+            //   - chunk N+1: completed condition with a start time local to that chunk
+            // The local start in chunk N+1 is wrong — it should use chunk N's start.
+            // We fix this by finding completed conditions in later chunks that match
+            // carry-over names and patching their start time.
+            var carryOverUsed = new HashSet<string>();
+            foreach (var cond in allConditions)
+            {
+                if (carryOver.TryGetValue(cond.Name, out float earlierStart) && earlierStart < cond.Start)
+                {
+                    // This condition was split across chunks; we already have the
+                    // completed entry from the later chunk — no need to add a duplicate.
+                    // The later chunk's entry captures the end time correctly.
+                    carryOverUsed.Add(cond.Name);
+                }
+            }
+
+            // Remaining carry-over entries are truly open-ended
+            foreach (var kvp in carryOver)
+            {
+                if (!carryOverUsed.Contains(kvp.Key))
+                {
+                    allConditions.Add(new ParsedCondition
+                    {
+                        Name = kvp.Key,
+                        Start = kvp.Value,
+                        End = null,
+                        Priority = (int)ConditionKind.OpenEnded,
+                        Kind = ConditionKind.OpenEnded,
+                        SourceFile = sourceFile
+                    });
+                }
+            }
+
+            allConditions.Sort((a, b) =>
+            {
+                int cmp = (a.End ?? a.Start).CompareTo(b.End ?? b.Start);
+                return cmp != 0 ? cmp : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+            });
+
+            return (allConditions, totalParsed);
         }
 
-        private m_xmlDataType GetTypeFromXml(string name)
+        /// <summary>Thread-safe cached version of ResolveTypeKey.</summary>
+        private (m_xmlDataType Type, string Key) ResolveTypeKeyCached(string name)
         {
-            foreach (var key in m_excludedStrings) if (name.Contains(key)) { m_currentxmlType = key; return m_xmlDataType.TYPE_EXCLUDED; }
-            foreach (var key in xmlDataRange.Keys) if (name.Contains(key)) { m_currentxmlType = key; return m_xmlDataType.TYPE_RANGE; }
-            foreach (var key in xmlDataBool.Keys) if (name.Contains(key)) { m_currentxmlType = key; return m_xmlDataType.TYPE_BOOLEAN; }
-            return m_xmlDataType.TYPE_INVALID;
+            return _typeKeyCache.GetOrAdd(name, n => ResolveTypeKey(n));
+        }
+
+        private (m_xmlDataType Type, string Key) ResolveTypeKey(string name)
+        {
+            foreach (var key in m_excludedStrings)
+                if (!string.IsNullOrEmpty(key) && name.Contains(key, StringComparison.Ordinal))
+                    return (m_xmlDataType.TYPE_EXCLUDED, key);
+
+            foreach (var key in xmlDataRange.Keys)
+                if (!string.IsNullOrEmpty(key) && name.Contains(key, StringComparison.Ordinal))
+                    return (m_xmlDataType.TYPE_RANGE, key);
+
+            foreach (var key in xmlDataBool.Keys)
+                if (!string.IsNullOrEmpty(key) && name.Contains(key, StringComparison.Ordinal))
+                    return (m_xmlDataType.TYPE_BOOLEAN, key);
+
+            return (m_xmlDataType.TYPE_INVALID, "");
         }
 
         private void ParseXmlFile(string filePath)
@@ -329,6 +516,8 @@ namespace DragonScope
             xmlDataBool.Clear();
             xmlAlias.Clear();
             m_excludedStrings.Clear();
+            _aliasCache.Clear();
+            _typeKeyCache.Clear();
 
             var xmlDoc = XDocument.Load(filePath);
             foreach (var element in xmlDoc.Descendants("ExcludedValue"))
@@ -360,6 +549,12 @@ namespace DragonScope
             }
         }
 
+        /// <summary>Thread-safe cached alias lookup.</summary>
+        private string GetAliasCached(string deviceName)
+        {
+            return _aliasCache.GetOrAdd(deviceName, GetAlias);
+        }
+
         private string GetAlias(string deviceName)
         {
             foreach (var kvp in xmlAlias)
@@ -375,12 +570,23 @@ namespace DragonScope
             {
                 string line = lines[it];
                 if (string.IsNullOrWhiteSpace(line)) continue;
-                var values = line.Split(',');
-                if (values.Length <= 2) continue;
-                if (!values[1].Contains("RobotEnable")) continue;
 
-                bool isEnable = values[2].Equals("true", StringComparison.OrdinalIgnoreCase) || values[2] == "1";
-                if (!double.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var ts))
+                if (!line.Contains("RobotEnable", StringComparison.Ordinal)) continue;
+
+                ReadOnlySpan<char> span = line.AsSpan();
+                int firstComma = span.IndexOf(',');
+                if (firstComma < 0) continue;
+                int secondComma = span[(firstComma + 1)..].IndexOf(',');
+                if (secondComma < 0) continue;
+                secondComma += firstComma + 1;
+
+                ReadOnlySpan<char> nameSpan = span[(firstComma + 1)..secondComma];
+                if (!nameSpan.Contains("RobotEnable", StringComparison.Ordinal)) continue;
+
+                ReadOnlySpan<char> valueSpan = span[(secondComma + 1)..];
+                bool isEnable = valueSpan.Equals("true", StringComparison.OrdinalIgnoreCase) || valueSpan is "1";
+
+                if (!double.TryParse(span[..firstComma], NumberStyles.Float, CultureInfo.InvariantCulture, out var ts))
                     continue;
 
                 if (isEnable && !prevEnable) return (float)ts;
@@ -396,7 +602,10 @@ namespace DragonScope
                 textBoxOutput.Invoke(new Action(() => WriteToTextBox(text, priority)));
                 return;
             }
-            
+
+            if (!_writtenMessages.Add(text))
+                return;
+
             switch (priority)
             {
                 case 1: textBoxOutput.SelectionColor = Color.Red; break;
@@ -405,13 +614,13 @@ namespace DragonScope
                 case 4: textBoxOutput.SelectionColor = Color.Purple; break;
                 default: textBoxOutput.SelectionColor = Color.Black; break;
             }
-            if (!textBoxOutput.Text.Contains(text))
-                textBoxOutput.AppendText(text + Environment.NewLine);
+            textBoxOutput.AppendText(text + Environment.NewLine);
         }
 
         private async void HootLoad_Click(object sender, EventArgs e)
         {
             textBoxOutput.Text = "";
+            _writtenMessages.Clear();
             if (!m_xmlInit)
             {
                 MessageBox.Show("Please load the XML file first.");
@@ -441,7 +650,7 @@ namespace DragonScope
                     string wpilogFileName = Path.GetFileNameWithoutExtension(targetPath) + ".wpilog";
                     string wpilogOutputPath = Path.Combine(logsDir, wpilogFileName);
 
-                    ConvertHootLogToWpilog(targetPath, wpilogOutputPath);
+                    await ConvertHootLogToWpilogAsync(targetPath, wpilogOutputPath);
                     MessageBox.Show($"Saved:\n{wpilogOutputPath}\n{wpilogOutputPath.Replace(".wpilog", ".csv")}");
                     return;
                 }
@@ -533,7 +742,6 @@ namespace DragonScope
                 {
                     diagnostic = $"Owlet failed (ExitCode {process.ExitCode})." +
                                  (stdErr.Length > 0 ? Environment.NewLine + stdErr.ToString() : "");
-                    //return false;
                 }
 
                 if (!File.Exists(wpilogPath))
@@ -585,7 +793,7 @@ namespace DragonScope
             }
         }
 
-        private void ConvertHootLogToWpilog(string hootLogPath, string wpilogPath)
+        private async Task ConvertHootLogToWpilogAsync(string hootLogPath, string wpilogPath)
         {
             m_stopWatch.Restart();
             progressBar1.Value = 0;
@@ -620,24 +828,46 @@ namespace DragonScope
             }
 
             string baseName = Path.GetFileNameWithoutExtension(hootLogPath);
-            WriteProgressBar($"Converting {baseName}: hoot → wpilog...", 0, 3);
+            WriteProgressBar($"Converting {baseName}: hoot → wpilog...", 0, 4);
 
-            if (!TryConvertHootToWpi(hootLogPath, wpilogPath, out string diag))
+            // Run owlet conversion on background thread
+            var (success, diag) = await Task.Run(() =>
+            {
+                bool ok = TryConvertHootToWpi(hootLogPath, wpilogPath, out string d);
+                return (ok, d);
+            });
+
+            if (!success)
             {
                 WriteToTextBox("Owlet conversion failed.", 1);
                 WriteToTextBox(diag, 1);
                 MessageBox.Show(diag, "Owlet Conversion Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                //return;
             }
 
-            WriteProgressBar($"Converting {baseName}: hoot → wpilog...", 1, 3);
+            WriteProgressBar($"Converting {baseName}: hoot → wpilog...", 1, 4);
             WriteToTextBox("Owlet conversion succeeded.", 0);
             WriteToTextBox(diag, 0);
-            progressBar1.Value = 50;
+            progressBar1.Value = 33;
 
-            WriteProgressBar($"Converting {baseName}: wpilog → CSV...", 2, 3);
-            ConvertWpilogToCsv(wpilogPath, wpilogPath.Replace(".wpilog", ".csv"));
-            WriteProgressBar($"Done processing {baseName}", 3, 3);
+            // Load wpilog and export to CSV using parallel formatter
+            WriteProgressBar($"Converting {baseName}: wpilog → CSV (parallel)...", 2, 4);
+            string csvPath = wpilogPath.Replace(".wpilog", ".csv");
+
+            await Task.Run(() =>
+            {
+                var parser = new WpiLogParser();
+                parser.Load(wpilogPath);
+                parser.ExportToCsvParallel(csvPath);
+            });
+
+            progressBar1.Value = 66;
+            WriteProgressBar($"Parsing {baseName} CSV (parallel)...", 3, 4);
+
+            // Parse the resulting CSV with parallel workers
+            _multiFileMode = false;
+            await ParseCsvFileAsync(csvPath);
+
+            WriteProgressBar($"Done processing {baseName}", 4, 4);
         }
 
         private async Task ProcessMultipleHootFilesAsync(string[] hootPaths)
@@ -676,13 +906,17 @@ namespace DragonScope
             Directory.CreateDirectory(logsDir);
 
             int totalFiles = hootPaths.Length;
-            // Total steps: convert each file (totalFiles) + parse each file (totalFiles) + merge (1)
-            int totalSteps = totalFiles * 2 + 1;
+            int totalSteps = totalFiles * 3 + 1; // convert + export + parse per file + merge
             int completedSteps = 0;
 
             WriteProgressBar($"Starting batch: {totalFiles} hoot file(s)...", 0, totalSteps);
 
-            var tasks = new List<Task<(List<ParsedCondition> Conditions, int LinesParsed, string[] CsvLines, string Base)>>();
+            // Each hoot file: convert → load+export → parse, all on background threads
+            var tasks = new List<Task<(
+                Dictionary<string, List<(double t, double v)>> Series,
+                List<ParsedCondition> Conditions,
+                int LinesParsed,
+                string Base)>>();
 
             foreach (var hoot in hootPaths)
             {
@@ -692,7 +926,7 @@ namespace DragonScope
                     string wpilogPath = Path.Combine(logsDir, baseName + ".wpilog");
                     string csvPath = Path.Combine(logsDir, baseName + ".csv");
 
-                    // Step: convert hoot → wpilog
+                    // Step 1: convert hoot → wpilog
                     if (!TryConvertHootToWpi(hoot, wpilogPath, out string convDiag))
                     {
                         this.Invoke(() =>
@@ -702,7 +936,8 @@ namespace DragonScope
                             Interlocked.Increment(ref completedSteps);
                             WriteProgressBar($"Convert failed: {baseName}", completedSteps, totalSteps);
                         });
-                        return (new List<ParsedCondition>(), 0, Array.Empty<string>(), baseName);
+                        return (new Dictionary<string, List<(double t, double v)>>(),
+                                new List<ParsedCondition>(), 0, baseName);
                     }
 
                     this.Invoke(() =>
@@ -711,44 +946,65 @@ namespace DragonScope
                         WriteProgressBar($"Converted: {baseName} (hoot → wpilog)", completedSteps, totalSteps);
                     });
 
-                    // Step: wpilog → CSV + parse
+                    // Step 2: wpilog → CSV using parallel export
                     var parser = new WpiLogParser();
                     parser.Load(wpilogPath);
-                    parser.ExportToCsv(csvPath);
-                    var lines = File.ReadAllLines(csvPath);
-                    var conditions = ParseCsvLinesToConditionsAligned(lines, sourceFile: baseName, out int parsedCount);
+                    parser.ExportToCsvParallel(csvPath);
 
                     this.Invoke(() =>
                     {
                         Interlocked.Increment(ref completedSteps);
-                        WriteProgressBar($"Parsed CSV: {baseName} ({parsedCount} lines)", completedSteps, totalSteps);
+                        WriteProgressBar($"Exported CSV: {baseName}", completedSteps, totalSteps);
                     });
 
-                    return (conditions, parsedCount, lines, baseName);
+                    // Step 3: parse CSV in parallel
+                    var lines = File.ReadAllLines(csvPath);
+                    float robotEnable = GetRobotEnableTime(lines);
+
+                    var (series, _) = BuildSeriesFromCsvParallel(lines, robotEnable, sourceSuffix: baseName);
+                    var (conditions, parsedCount) = ParseCsvLinesToConditionsParallel(lines, robotEnable, baseName);
+
+                    this.Invoke(() =>
+                    {
+                        Interlocked.Increment(ref completedSteps);
+                        WriteProgressBar($"Parsed: {baseName} ({parsedCount} lines)", completedSteps, totalSteps);
+                    });
+
+                    return (series, conditions, parsedCount, baseName);
                 }));
             }
 
             var results = await Task.WhenAll(tasks);
             progressBar1.Value = 80;
 
-            // Step: merge all results
+            // Merge step
             WriteProgressBar("Merging series data...", completedSteps, totalSteps);
 
             _csvSeries.Clear();
             var allConditions = new List<ParsedCondition>();
             int totalLinesParsed = 0;
+
             foreach (var r in results)
             {
-                if (r.CsvLines.Length == 0) continue;
+                if (r.Series.Count == 0 && r.Conditions.Count == 0) continue;
                 totalLinesParsed += r.LinesParsed;
                 allConditions.AddRange(r.Conditions);
-                BuildSeriesFromCsv(r.CsvLines, sourceSuffix: r.Base);
+
+                foreach (var kvp in r.Series)
+                {
+                    if (_csvSeries.TryGetValue(kvp.Key, out var existing))
+                        existing.AddRange(kvp.Value);
+                    else
+                        _csvSeries[kvp.Key] = kvp.Value;
+                }
             }
 
             _lastConditions = allConditions
                 .OrderBy(c => c.End ?? c.Start)
                 .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            allConditions = null;
 
             completedSteps = totalSteps;
             WriteProgressBar($"Done — {totalFiles} file(s), {totalLinesParsed} lines merged", completedSteps, totalSteps);
@@ -771,90 +1027,8 @@ namespace DragonScope
 
             if (_plotForm != null && !_plotForm.IsDisposed)
                 _plotForm.UpdateData(_csvSeries, _lastConditions);
-        }
 
-        private List<ParsedCondition> ParseCsvLinesToConditionsAligned(string[] lines, string sourceFile, out int linesParsed)
-        {
-            var result = new List<ParsedCondition>();
-            var active = new Dictionary<string, float>();
-            float robotEnable = GetRobotEnableTime(lines);
-            int parsedCount = 0;
-
-            for (int i = 0; i < lines.Length; i++)
-            {
-                var line = lines[i];
-                if (string.IsNullOrWhiteSpace(line)) continue;
-                var values = line.Split(',');
-                if (values.Length <= 2) continue;
-                if (!float.TryParse(values[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float rawTime)) continue;
-
-                parsedCount++;
-                float t = rawTime - robotEnable;
-                string longName = values[1];
-                string displayName = GetAlias(longName);
-                var (type, xmlKey) = ResolveTypeKey(longName);
-                switch (type)
-                {
-                    case m_xmlDataType.TYPE_BOOLEAN:
-                        if (!xmlDataBool.TryGetValue(xmlKey, out var b)) break;
-                        var (flagState, boolPriorityStr) = b;
-                        int priority = int.TryParse(boolPriorityStr, out var pBool) ? pBool : 1;
-                        if (values[2] == flagState)
-                        {
-                            if (!active.ContainsKey(displayName)) active[displayName] = t;
-                        }
-                        else if (active.TryGetValue(displayName, out float start))
-                        {
-                            result.Add(new ParsedCondition { Name = displayName, Start = start, End = t, Priority = priority, Kind = ConditionKind.BoolTrue, SourceFile = sourceFile });
-                            active.Remove(displayName);
-                        }
-                        break;
-                    case m_xmlDataType.TYPE_RANGE:
-                        if (!float.TryParse(values[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float val)) break;
-                        if (!xmlDataRange.TryGetValue(xmlKey, out var r)) break;
-                        var (hiStr, loStr, prioStr) = r;
-                        if (!float.TryParse(loStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float low)) break;
-                        if (!float.TryParse(hiStr, NumberStyles.Float, CultureInfo.InvariantCulture, out float high)) break;
-                        int prio = int.TryParse(prioStr, out var pRange) ? pRange : 2;
-                        bool oob = val < low || val > high;
-                        if (oob)
-                        {
-                            if (!active.ContainsKey(displayName)) active[displayName] = t;
-                        }
-                        else if (active.TryGetValue(displayName, out float start2))
-                        {
-                            result.Add(new ParsedCondition { Name = displayName, Start = start2, End = t, Priority = prio, Kind = ConditionKind.RangeOutOfBounds, SourceFile = sourceFile });
-                            active.Remove(displayName);
-                        }
-                        break;
-                    case m_xmlDataType.TYPE_EXCLUDED:
-                        break;
-                }
-            }
-
-            foreach (var kv in active)
-                result.Add(new ParsedCondition { Name = kv.Key, Start = kv.Value, End = null, Priority = (int)ConditionKind.OpenEnded, Kind = ConditionKind.OpenEnded, SourceFile = sourceFile });
-
-            linesParsed = parsedCount;
-            return result;
-        }
-
-        private void ConvertWpilogToCsv(string wpilogPath, string csvPath)
-        {
-            try
-            {
-                var parser = new WpiLogParser();
-                parser.Load(wpilogPath);
-                progressBar1.Value = 75;
-                parser.ExportToCsv(csvPath);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"An error occurred with wpilog conversion: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-            _multiFileMode = false;
-            ParseCsvFile(csvPath);
+            CompactHeap();
         }
 
         private static string GetAppDataDir()
@@ -961,23 +1135,14 @@ namespace DragonScope
             WriteToTextBox($"Owlet conversion ok: {Path.GetFileName(hootLogPath)}", 0);
         }
 
-        private (m_xmlDataType Type, string Key) ResolveTypeKey(string name)
+        /// <summary>
+        /// Forces a Gen2 GC collection and compacts the large object heap
+        /// to release memory after large parsing operations.
+        /// </summary>
+        private static void CompactHeap()
         {
-            // Determines which XML classification the log entry name matches.
-            // Returns the matched type and the key used to lookup range/bool metadata.
-            foreach (var key in m_excludedStrings)
-                if (!string.IsNullOrEmpty(key) && name.Contains(key, StringComparison.Ordinal))
-                    return (m_xmlDataType.TYPE_EXCLUDED, key);
-
-            foreach (var key in xmlDataRange.Keys)
-                if (!string.IsNullOrEmpty(key) && name.Contains(key, StringComparison.Ordinal))
-                    return (m_xmlDataType.TYPE_RANGE, key);
-
-            foreach (var key in xmlDataBool.Keys)
-                if (!string.IsNullOrEmpty(key) && name.Contains(key, StringComparison.Ordinal))
-                    return (m_xmlDataType.TYPE_BOOLEAN, key);
-
-            return (m_xmlDataType.TYPE_INVALID, "");
+            GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+            GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
         }
     }
 }
