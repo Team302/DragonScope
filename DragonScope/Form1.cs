@@ -238,22 +238,6 @@ namespace DragonScope
             }
         }
 
-        private void SaveOutputToTextFile_Click(object? sender, EventArgs e)
-        {
-            using var sfd = new SaveFileDialog
-            {
-                Title = "Save Output",
-                Filter = "Text Files (*.txt)|*.txt|All files (*.*)|*.*",
-                FileName = $"DragonScope_Output_{DateTime.Now:yyyyMMdd_HHmmss}.txt",
-                InitialDirectory = GetLogsDir()
-            };
-            if (sfd.ShowDialog() == DialogResult.OK)
-            {
-                File.WriteAllText(sfd.FileName, textBoxOutput.Text);
-                MessageBox.Show($"Saved output to:\n{sfd.FileName}", "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
-
         /// <summary>
         /// Forces a Gen2 GC collection and compacts the large object heap
         /// to release memory after large parsing operations.
@@ -308,9 +292,28 @@ namespace DragonScope
                 foreach (var kvp in analysis.CsvSeries)
                     _csvSeries[kvp.Key] = new List<(double t, double v)>(kvp.Value);
 
-                _lastConditions = new List<ParsedCondition>(analysis.Conditions);
+                _lastConditions = analysis.Conditions
+                    .OrderBy(c => c.End ?? c.Start)
+                    .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                
                 lblCsvFile.Text = $"[CACHED] {analysis.FileName}";
                 progressBar1.Value = 100;
+
+                textBoxOutput.Clear();
+                _writtenMessages.Clear();
+
+                foreach (var c in _lastConditions)
+                {
+                    string msg = c.Kind switch
+                    {
+                        ConditionKind.BoolTrue => $"\"{c.Name}\" was true from {c.Start} to {c.End}",
+                        ConditionKind.RangeOutOfBounds => $"\"{c.Name}\" was out of bounds from {c.Start} to {c.End}",
+                        ConditionKind.OpenEnded => $"\"{c.Name}\" started at {c.Start} and did not end.",
+                        _ => $"\"{c.Name}\" event at {c.Start}"
+                    };
+                    WriteToTextBox(msg, c.Priority);
+                }
 
                 WriteToTextBox($"Loaded cached analysis: {analysis.FileName} ({analysis.LinesParsed} lines)", 0);
                 WriteToTextBox($"Data Hash: {analysis.DataHash}", 0);

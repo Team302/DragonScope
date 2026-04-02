@@ -377,8 +377,14 @@ namespace DragonScope
             if (_plotForm != null && !_plotForm.IsDisposed)
                 _plotForm.UpdateData(_csvSeries, _lastConditions);
 
+            string combinedFiles = string.Join("_", hootPaths.Select(p => Path.GetFileNameWithoutExtension(p)));
+            if (combinedFiles.Length > 100) 
+            {
+                combinedFiles = combinedFiles.Substring(0, 100) + "...";
+            }
+            
             // Cache the merged multi-file analysis
-            CacheCurrentAnalysis($"MultiFile_{DateTime.Now:yyyyMMdd_HHmmss}", totalLinesParsed);
+            CacheCurrentAnalysis($"Combined_{combinedFiles}_{DateTime.Now:yyyyMMdd_HHmmss}", totalLinesParsed);
 
             CompactHeap();
         }

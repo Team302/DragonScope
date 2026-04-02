@@ -3,10 +3,10 @@
     partial class Form1
     {
         private System.ComponentModel.IContainer components = null;
-        private System.Windows.Forms.Button btnSaveOutput;
         private System.Windows.Forms.Button btnOpenCsv;
         private System.Windows.Forms.Button btnOpenXml;
-        private System.Windows.Forms.Button btnOpenPlot; // NEW: Open Plot button
+        private System.Windows.Forms.Button btnOpenPlot;
+        private System.Windows.Forms.Button btnCacheBrowser;
         private System.Windows.Forms.Label lblCsvFile;
         private System.Windows.Forms.Label lblXmlFile;
         private System.Windows.Forms.Button btnDeleteLogs;
@@ -25,13 +25,13 @@
         {
             btnOpenXml = new Button();
             btnOpenCsv = new Button();
-            btnOpenPlot = new Button(); // instantiate
+            btnOpenPlot = new Button();
+            btnCacheBrowser = new Button();
             lblCsvFile = new Label();
             lblXmlFile = new Label();
             progressBar1 = new ProgressBar();
             textBoxOutput = new RichTextBox();
             HootLoad = new Button();
-            btnSaveOutput = new Button();
             btnDeleteLogs = new Button();
             SuspendLayout();
             // 
@@ -67,6 +67,17 @@
             btnOpenPlot.Text = "Open Plot";
             btnOpenPlot.UseVisualStyleBackColor = true;
             btnOpenPlot.Click += btnOpenPlot_Click;
+            // 
+            // btnCacheBrowser
+            // 
+            btnCacheBrowser.Location = new System.Drawing.Point(311, 11);
+            btnCacheBrowser.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+            btnCacheBrowser.Name = "btnCacheBrowser";
+            btnCacheBrowser.Size = new System.Drawing.Size(110, 31);
+            btnCacheBrowser.TabIndex = 9;
+            btnCacheBrowser.Text = "Cache Browser";
+            btnCacheBrowser.UseVisualStyleBackColor = true;
+            btnCacheBrowser.Click += BtnCacheBrowser_Click;
             // 
             // lblCsvFile
             // 
@@ -110,19 +121,6 @@
             HootLoad.UseVisualStyleBackColor = true;
             HootLoad.Click += HootLoad_Click;
             // 
-            // btnSaveOutput
-            // 
-            btnSaveOutput.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
-            btnSaveOutput.AutoSize = true;
-            btnSaveOutput.Location = new System.Drawing.Point(673, 49);
-            btnSaveOutput.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-            btnSaveOutput.Name = "btnSaveOutput";
-            btnSaveOutput.Size = new System.Drawing.Size(126, 29);
-            btnSaveOutput.TabIndex = 5;
-            btnSaveOutput.Text = "Save Output...";
-            btnSaveOutput.UseVisualStyleBackColor = true;
-            btnSaveOutput.Click += SaveOutputToTextFile_Click;
-            // 
             // btnDeleteLogs
             // 
             btnDeleteLogs.Location = new System.Drawing.Point(565, 49);
@@ -139,13 +137,13 @@
             AutoScaleDimensions = new System.Drawing.SizeF(8F, 20F);
             AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             ClientSize = new System.Drawing.Size(912, 600);
+            Controls.Add(btnCacheBrowser);
             Controls.Add(btnOpenPlot);
             Controls.Add(btnDeleteLogs);
             Controls.Add(HootLoad);
             Controls.Add(btnOpenXml);
             Controls.Add(textBoxOutput);
             Controls.Add(progressBar1);
-            Controls.Add(btnSaveOutput);
             Controls.Add(lblXmlFile);
             Controls.Add(lblCsvFile);
             Controls.Add(btnOpenCsv);
