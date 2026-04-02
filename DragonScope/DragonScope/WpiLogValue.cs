@@ -16,12 +16,12 @@ namespace WpiLogLib
 
         public ValueKind Kind { get; }
 
-        // Numeric storage — only one is meaningful per Kind
+        // Numeric storage - only one is meaningful per Kind
         private readonly double _doubleVal;
         private readonly long _longVal;
         private readonly bool _boolVal;
 
-        // String storage — null unless Kind == String
+        // String storage - null unless Kind == String
         private readonly string? _stringVal;
 
         private WpiLogValue(ValueKind kind, double d, long l, bool b, string? s)
