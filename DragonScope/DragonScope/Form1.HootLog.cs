@@ -377,6 +377,9 @@ namespace DragonScope
             if (_plotForm != null && !_plotForm.IsDisposed)
                 _plotForm.UpdateData(_csvSeries, _lastConditions);
 
+            // Cache the merged multi-file analysis
+            CacheCurrentAnalysis($"MultiFile_{DateTime.Now:yyyyMMdd_HHmmss}", totalLinesParsed);
+
             CompactHeap();
         }
 

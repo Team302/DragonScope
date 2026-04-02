@@ -22,6 +22,7 @@ namespace DragonScope
     public partial class Form1 : Form
     {
         private PlotForm? _plotForm;
+        private DataCacheManager _cacheManager = new();
 
         private Dictionary<string, List<(double t, double v)>> _csvSeries = new();
         private List<ParsedCondition> _lastConditions = new();
@@ -262,5 +263,112 @@ namespace DragonScope
             GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
             GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
         }
+
+        #region Cache Management
+
+        private void CacheCurrentAnalysis(string fileName, int linesParsed)
+        {
+            try
+            {
+                string dataHash = _cacheManager.GenerateDataHash(_csvSeries, _lastConditions);
+                string cacheId = Guid.NewGuid().ToString("N");
+
+                var analysis = new CachedAnalysis
+                {
+                    CacheId = cacheId,
+                    FileName = fileName,
+                    DataHash = dataHash,
+                    CachedAt = DateTime.Now,
+                    LinesParsed = linesParsed,
+                    CsvSeries = new Dictionary<string, List<(double t, double v)>>(_csvSeries),
+                    Conditions = new List<ParsedCondition>(_lastConditions)
+                };
+
+                _cacheManager.SaveAnalysis(analysis);
+                WriteToTextBox($"Analysis cached: {fileName} (ID: {cacheId})", 0);
+            }
+            catch (Exception ex)
+            {
+                WriteToTextBox($"Failed to cache analysis: {ex.Message}", 1);
+            }
+        }
+
+        public CachedAnalysis? LoadCachedAnalysis(string cacheId)
+        {
+            try
+            {
+                var analysis = _cacheManager.LoadAnalysis(cacheId);
+                if (analysis == null)
+                {
+                    MessageBox.Show("Failed to load cached analysis.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return null;
+                }
+
+                _csvSeries.Clear();
+                foreach (var kvp in analysis.CsvSeries)
+                    _csvSeries[kvp.Key] = new List<(double t, double v)>(kvp.Value);
+
+                _lastConditions = new List<ParsedCondition>(analysis.Conditions);
+                lblCsvFile.Text = $"[CACHED] {analysis.FileName}";
+                progressBar1.Value = 100;
+
+                WriteToTextBox($"Loaded cached analysis: {analysis.FileName} ({analysis.LinesParsed} lines)", 0);
+                WriteToTextBox($"Data Hash: {analysis.DataHash}", 0);
+
+                if (_plotForm != null && !_plotForm.IsDisposed)
+                    _plotForm.UpdateData(_csvSeries, _lastConditions);
+
+                return analysis;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading cached analysis: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return null;
+            }
+        }
+
+        public List<CachedAnalysisMetadata> SearchCache(string searchTerm)
+        {
+            return _cacheManager.SearchCachedAnalyses(searchTerm);
+        }
+
+        public List<CachedAnalysisMetadata> GetAllCachedAnalyses()
+        {
+            return _cacheManager.GetAllCachedAnalyses();
+        }
+
+        public void DeleteCachedAnalysis(string cacheId)
+        {
+            try
+            {
+                _cacheManager.DeleteAnalysis(cacheId);
+                WriteToTextBox($"Deleted cached analysis: {cacheId}", 0);
+            }
+            catch (Exception ex)
+            {
+                WriteToTextBox($"Failed to delete cached analysis: {ex.Message}", 1);
+            }
+        }
+
+        public void ClearAllCache()
+        {
+            try
+            {
+                _cacheManager.ClearAllCache();
+                WriteToTextBox("All cached analyses cleared.", 0);
+            }
+            catch (Exception ex)
+            {
+                WriteToTextBox($"Failed to clear cache: {ex.Message}", 1);
+            }
+        }
+
+        private void BtnCacheBrowser_Click(object? sender, EventArgs e)
+        {
+            var cacheBrowser = new CacheBrowserForm(this);
+            cacheBrowser.ShowDialog(this);
+        }
+
+        #endregion
     }
 }
