@@ -34,6 +34,65 @@ namespace DragonScope
             var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("DragonScope.icon.ico");
             if (stream != null)
                 this.Icon = new Icon(stream);
+
+            this.Shown += Form1_Shown;
+        }
+
+        private void Form1_Shown(object? sender, EventArgs e)
+        {
+            string? cachedPath = LoadConfigPath();
+            string defaultPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Documents", "GitHub", "DragonScope", "config.xml");
+
+            string targetPath = !string.IsNullOrWhiteSpace(cachedPath) && File.Exists(cachedPath) ? cachedPath : defaultPath;
+
+            if (File.Exists(targetPath))
+            {
+                ParseXmlFile(targetPath);
+                lblXmlFile.Text = targetPath;
+                m_xmlInit = true;
+                WriteToTextBox($"Loaded config from: {targetPath}", 0);
+                if (targetPath != cachedPath)
+                {
+                    SaveConfigPath(targetPath);
+                }
+            }
+            else
+            {
+                MessageBox.Show($"Could not find config.xml in the expected location:\n{targetPath}\n\nPlease select it manually.", "Config Required", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                btnOpenXml_Click(this, EventArgs.Empty);
+            }
+        }
+
+        private string GetConfigPathCacheFile()
+        {
+            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DragonScope");
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, "cached_config_path.txt");
+        }
+
+        private void SaveConfigPath(string path)
+        {
+            try
+            {
+                File.WriteAllText(GetConfigPathCacheFile(), path);
+            }
+            catch { }
+        }
+
+        private string? LoadConfigPath()
+        {
+            try
+            {
+                string file = GetConfigPathCacheFile();
+                if (File.Exists(file))
+                {
+                    string path = File.ReadAllText(file).Trim();
+                    if (File.Exists(path))
+                        return path;
+                }
+            }
+            catch { }
+            return null;
         }
 
         private void btnOpenPlot_Click(object sender, EventArgs e)
@@ -166,6 +225,8 @@ namespace DragonScope
                 ParseXmlFile(openFileDialog.FileName);
                 lblXmlFile.Text = openFileDialog.FileName;
                 m_xmlInit = true;
+                SaveConfigPath(openFileDialog.FileName);
+                WriteToTextBox($"Loaded config from: {openFileDialog.FileName}", 0);
             }
         }
 
