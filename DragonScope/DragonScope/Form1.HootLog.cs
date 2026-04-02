@@ -356,7 +356,7 @@ namespace DragonScope
             allConditions = null;
 
             completedSteps = totalSteps;
-            WriteProgressBar($"Done — {totalFiles} file(s), {totalLinesParsed} lines merged", completedSteps, totalSteps);
+            WriteProgressBar($"Done - {totalFiles} file(s), {totalLinesParsed} lines merged", completedSteps, totalSteps);
 
             foreach (var c in _lastConditions)
             {
