@@ -160,6 +160,7 @@ namespace DragonScope
             if (formsPlot.Plot.Legend.IsVisible)
                 formsPlot.Plot.Legend.Alignment = Alignment.UpperLeft;
 
+            formsPlot.Plot.Axes.AutoScale();
             formsPlot.Refresh();
         }
     }

@@ -140,7 +140,9 @@ namespace DragonScope
             var serializationOptions = new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                WriteIndented = false
+                WriteIndented = false,
+                IncludeFields = true,
+                PropertyNameCaseInsensitive = true
             };
 
             using (var fs = File.Create(cachePath))
@@ -175,7 +177,9 @@ namespace DragonScope
             {
                 var serializationOptions = new JsonSerializerOptions
                 {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    IncludeFields = true,
+                    PropertyNameCaseInsensitive = true
                 };
                 
                 using var fs = File.OpenRead(cachePath);
