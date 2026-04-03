@@ -11,6 +11,8 @@ namespace DragonScope
     {
         private readonly Dictionary<string, List<(double t, double v)>> _series = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<ParsedCondition> _conditions = new();
+        private List<string> _plottedKeys = new();
+        private ScottPlot.Plottables.Crosshair? _crosshair;
 
         public PlotForm()
         {
@@ -19,8 +21,55 @@ namespace DragonScope
             formsPlot.Plot.XLabel("Time (s from RobotEnable)");
             formsPlot.Plot.YLabel("Value");
             formsPlot.Plot.HideLegend();
-            //formsPlot.Plot.Legend.IsVisible = false;
-            //formsPlot.Refresh();
+            formsPlot.MouseMove += FormsPlot_MouseMove;
+        }
+
+        private void FormsPlot_MouseMove(object? sender, MouseEventArgs e)
+        {
+            if (_plottedKeys.Count == 0) return;
+
+            Coordinates mouseCoordinates = formsPlot.Plot.GetCoordinates(e.X, e.Y);
+
+            double minXDist = double.MaxValue;
+            double snapX = 0;
+            double snapY = 0;
+            bool found = false;
+            string closestKey = "";
+
+            foreach (var key in _plottedKeys)
+            {
+                if (!_series.TryGetValue(key, out var pts) || pts.Count == 0) continue;
+
+                int idx = pts.BinarySearch(new (mouseCoordinates.X, 0), Comparer<(double t, double v)>.Create((a, b) => a.t.CompareTo(b.t)));
+                if (idx < 0) idx = ~idx;
+
+                for (int i = Math.Max(0, idx - 1); i <= Math.Min(pts.Count - 1, idx); i++)
+                {
+                    double xDist = Math.Abs(pts[i].t - mouseCoordinates.X);
+                    if (xDist < minXDist)
+                    {
+                        minXDist = xDist;
+                        snapX = pts[i].t;
+                        snapY = pts[i].v;
+                        closestKey = key;
+                        found = true;
+                    }
+                }
+            }
+
+            if (found && _crosshair != null)
+            {
+                _crosshair.IsVisible = true;
+                _crosshair.Position = new Coordinates(snapX, snapY);
+                this.Text = $"DragonScope Data Plot : {closestKey} (Time: {snapX:F3}, Value: {snapY:F5})";
+                formsPlot.Refresh();
+            }
+            else if (_crosshair != null)
+            {
+                _crosshair.IsVisible = false;
+                this.Text = "DragonScope Data Plot";
+                formsPlot.Refresh();
+            }
         }
 
         public void UpdateData(Dictionary<string, List<(double t, double v)>> series, IReadOnlyList<ParsedCondition> conditions)
@@ -99,6 +148,8 @@ namespace DragonScope
             formsPlot.Plot.Clear();
 
             var checkedKeys = seriesList.CheckedItems.Cast<string>().ToList();
+            _plottedKeys = checkedKeys;
+            
             foreach (var key in checkedKeys)
             {
                 if (!_series.TryGetValue(key, out var pts) || pts.Count == 0)
@@ -155,6 +206,9 @@ namespace DragonScope
                     }
                 }
             }
+
+            _crosshair = formsPlot.Plot.Add.Crosshair(0, 0);
+            _crosshair.IsVisible = false;
 
             formsPlot.Plot.Legend.IsVisible = checkedKeys.Count > 0;
             if (formsPlot.Plot.Legend.IsVisible)

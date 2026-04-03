@@ -55,9 +55,7 @@ namespace DragonScope
 
             foreach (var kvp in series)
             {
-                if (_csvSeries.TryGetValue(kvp.Key, out var existing))
-                    existing.AddRange(kvp.Value);
-                else
+                if (!_csvSeries.ContainsKey(kvp.Key))
                     _csvSeries[kvp.Key] = kvp.Value;
             }
 
@@ -129,8 +127,6 @@ namespace DragonScope
 
                     string longName = span[(firstComma + 1)..secondComma].ToString();
                     string displayName = GetAliasCached(longName);
-                    if (sourceSuffix != null)
-                        displayName = $"{displayName} [{sourceSuffix}]";
 
                     double numeric;
                     if (double.TryParse(rawValSpan, NumberStyles.Float, CultureInfo.InvariantCulture, out double val))

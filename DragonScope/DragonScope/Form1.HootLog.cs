@@ -341,14 +341,14 @@ namespace DragonScope
 
                 foreach (var kvp in r.Series)
                 {
-                    if (_csvSeries.TryGetValue(kvp.Key, out var existing))
-                        existing.AddRange(kvp.Value);
-                    else
+                    if (!_csvSeries.ContainsKey(kvp.Key))
                         _csvSeries[kvp.Key] = kvp.Value;
                 }
             }
 
             _lastConditions = allConditions
+                .GroupBy(c => new { c.Name, c.Start, c.End, c.Priority, c.Kind })
+                .Select(g => g.First())
                 .OrderBy(c => c.End ?? c.Start)
                 .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
