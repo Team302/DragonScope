@@ -8,14 +8,36 @@ namespace DragonScope
     public partial class CacheBrowserForm : Form
     {
         private readonly Form1 _parentForm;
-        private DataCacheManager _cacheManager = new();
+        private readonly DataCacheManager _cacheManager;
         private List<CachedAnalysisMetadata> _currentResults = new();
-
         public CacheBrowserForm(Form1 parentForm)
         {
             _parentForm = parentForm;
+            _cacheManager = ResolveSharedCacheManager(parentForm);
             InitializeComponent();
             LoadCacheList();
+        }
+        private DataCacheManager ResolveSharedCacheManager(Form1 parentForm)
+        {
+            var flags = System.Reflection.BindingFlags.Instance |
+                        System.Reflection.BindingFlags.Public |
+                        System.Reflection.BindingFlags.NonPublic;
+            var parentType = parentForm.GetType();
+            var property = parentType
+                .GetProperties(flags)
+                .FirstOrDefault(p => p.PropertyType == typeof(DataCacheManager) && p.GetIndexParameters().Length == 0);
+            if (property?.GetValue(parentForm) is DataCacheManager propertyManager)
+            {
+                return propertyManager;
+            }
+            var field = parentType
+                .GetFields(flags)
+                .FirstOrDefault(f => f.FieldType == typeof(DataCacheManager));
+            if (field?.GetValue(parentForm) is DataCacheManager fieldManager)
+            {
+                return fieldManager;
+            }
+            return new DataCacheManager();
         }
 
         private void InitializeComponent()
