@@ -198,6 +198,7 @@ namespace DragonScope
                 _parentForm.ClearAllCache();
                 LoadCacheList();
             }
+            this.Close();
         }
 
         private void CacheListView_ItemSelectionChanged(object? sender, ListViewItemSelectionChangedEventArgs e)
@@ -226,6 +227,7 @@ namespace DragonScope
             {
                 MessageBox.Show("Please select an analysis to load.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
+            this.Close();
         }
 
         private void BtnDelete_Click(object? sender, EventArgs e)
