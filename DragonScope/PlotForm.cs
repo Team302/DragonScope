@@ -18,7 +18,9 @@ namespace DragonScope
             formsPlot.Plot.Title("CSV Data");
             formsPlot.Plot.XLabel("Time (s from RobotEnable)");
             formsPlot.Plot.YLabel("Value");
-            formsPlot.Refresh();
+            formsPlot.Plot.HideLegend();
+            //formsPlot.Plot.Legend.IsVisible = false;
+            //formsPlot.Refresh();
         }
 
         public void UpdateData(Dictionary<string, List<(double t, double v)>> series, IReadOnlyList<ParsedCondition> conditions)
@@ -32,6 +34,8 @@ namespace DragonScope
 
             PopulateSelectors();
             RenderPlot(null, EventArgs.Empty);
+            formsPlot.Plot.HideLegend();
+
         }
 
         private void PopulateSelectors()
@@ -126,16 +130,11 @@ namespace DragonScope
                             var span = formsPlot.Plot.Add.VerticalSpan(c.Start, c.End!.Value);
                             span.FillColor = ToPlotColor(drawColor);
                         }
-                        var legendLine = formsPlot.Plot.Add.Line(0, 0, 0, 0);
-                        legendLine.Color = ToPlotColor(drawColor);
-                        legendLine.LineWidth = 0;
-                        legendLine.LegendText = $"Priority {grp.Key} interval(s)";
                     }
                     foreach (var c in _conditions.Where(c => !c.End.HasValue))
                     {
                         var vline = formsPlot.Plot.Add.VerticalLine(c.Start);
                         vline.Color = ToPlotColor(PriorityColor(c.Priority));
-                        vline.LegendText = $"{c.Name} (open)";
                     }
                 }
                 else
@@ -147,19 +146,17 @@ namespace DragonScope
                         {
                             var span = formsPlot.Plot.Add.VerticalSpan(c.Start, c.End.Value);
                             span.FillColor = ToPlotColor(baseColor);
-                            span.LegendText = c.Name;
                         }
                         else
                         {
                             var vline = formsPlot.Plot.Add.VerticalLine(c.Start);
                             vline.Color = ToPlotColor(baseColor);
-                            vline.LegendText = $"{c.Name} (open)";
                         }
                     }
                 }
             }
 
-            formsPlot.Plot.Legend.IsVisible = checkedKeys.Count > 0 || (chkShowErrors.Checked && _conditions.Count > 0);
+            formsPlot.Plot.Legend.IsVisible = checkedKeys.Count > 0;
             if (formsPlot.Plot.Legend.IsVisible)
                 formsPlot.Plot.Legend.Alignment = Alignment.UpperLeft;
 
