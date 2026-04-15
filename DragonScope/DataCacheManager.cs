@@ -1,0 +1,257 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace DragonScope
+{
+    public class CachedAnalysis
+    {
+        public string CacheId { get; set; } = "";
+        public string FileName { get; set; } = "";
+        public string DataHash { get; set; } = "";
+        public DateTime CachedAt { get; set; }
+        public int LinesParsed { get; set; }
+        public Dictionary<string, List<(double t, double v)>> CsvSeries { get; set; } = new();
+        public List<ParsedCondition> Conditions { get; set; } = new();
+    }
+
+    public class CachedAnalysisMetadata
+    {
+        public string CacheId { get; set; } = "";
+        public string FileName { get; set; } = "";
+        public string DataHash { get; set; } = "";
+        public DateTime CachedAt { get; set; }
+        public int LinesParsed { get; set; }
+    }
+
+    public class DataCacheManager
+    {
+        private readonly string _cacheDirectory;
+        private const string METADATA_FILENAME = "cache_metadata.json";
+        private List<CachedAnalysisMetadata> _metadataCache = new();
+
+        public DataCacheManager()
+        {
+            _cacheDirectory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DragonScope",
+                "DataCache");
+            Directory.CreateDirectory(_cacheDirectory);
+            LoadMetadata();
+        }
+
+        public string GenerateDataHash(Dictionary<string, List<(double t, double v)>> csvSeries,
+            List<ParsedCondition> conditions)
+        {
+            using var sha256 = SHA256.Create();
+            var bytes = new byte[8192];
+            int pointer = 0;
+
+            void Flush()
+            {
+                if (pointer > 0)
+                {
+                    sha256.TransformBlock(bytes, 0, pointer, null, 0);
+                    pointer = 0;
+                }
+            }
+
+            Span<char> charBuf = stackalloc char[256];
+            var utf8 = System.Text.Encoding.UTF8;
+
+            void AppendSpan(ReadOnlySpan<char> s)
+            {
+                int maxBytes = utf8.GetMaxByteCount(s.Length);
+                if (pointer + maxBytes > bytes.Length)
+                    Flush();
+
+                if (maxBytes > bytes.Length)
+                {
+                    var bigBuffer = new byte[maxBytes];
+                    int w = utf8.GetBytes(s, bigBuffer);
+                    sha256.TransformBlock(bigBuffer, 0, w, null, 0);
+                }
+                else
+                {
+                    pointer += utf8.GetBytes(s, bytes.AsSpan(pointer));
+                }
+            }
+
+            foreach (var kvp in csvSeries.OrderBy(x => x.Key))
+            {
+                AppendSpan(kvp.Key.AsSpan());
+                
+                // Sort in-place to prevent allocating huge arrays
+                kvp.Value.Sort((a,b) => a.t.CompareTo(b.t));
+                
+                foreach (var (t, v) in kvp.Value)
+                {
+                    AppendSpan("|");
+                    if (t.TryFormat(charBuf, out int charsWritten, "G17", System.Globalization.CultureInfo.InvariantCulture))
+                        AppendSpan(charBuf.Slice(0, charsWritten));
+                    
+                    AppendSpan(":");
+                    if (v.TryFormat(charBuf, out charsWritten, "G17", System.Globalization.CultureInfo.InvariantCulture))
+                        AppendSpan(charBuf.Slice(0, charsWritten));
+                }
+                AppendSpan(";");
+            }
+
+            AppendSpan("---");
+
+            conditions.Sort((a, b) => 
+            {
+                int cmp = string.Compare(a.Name, b.Name, StringComparison.Ordinal);
+                if (cmp != 0) return cmp;
+                return a.Start.CompareTo(b.Start);
+            });
+
+            foreach (var cond in conditions)
+            {
+                AppendSpan(cond.Name.AsSpan());
+                AppendSpan("|");
+                if (cond.Start.TryFormat(charBuf, out int charsWritten, "G17", System.Globalization.CultureInfo.InvariantCulture))
+                    AppendSpan(charBuf.Slice(0, charsWritten));
+                AppendSpan("|");
+                
+                if (cond.End.HasValue)
+                {
+                    if (cond.End.Value.TryFormat(charBuf, out charsWritten, "G17", System.Globalization.CultureInfo.InvariantCulture))
+                        AppendSpan(charBuf.Slice(0, charsWritten));
+                }
+                
+                AppendSpan($"|{cond.Priority}|{cond.Kind}|{cond.SourceFile}:");
+            }
+
+            Flush();
+            sha256.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+            return BitConverter.ToString(sha256.Hash!).Replace("-", "").ToUpperInvariant();
+        }
+
+        public void SaveAnalysis(CachedAnalysis analysis)
+        {
+            var cacheId = analysis.CacheId;
+            var cachePath = Path.Combine(_cacheDirectory, $"{cacheId}.json");
+
+            var serializationOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = false
+            };
+
+            using (var fs = File.Create(cachePath))
+            {
+                JsonSerializer.Serialize(fs, analysis, serializationOptions);
+            }
+
+            var metadata = new CachedAnalysisMetadata
+            {
+                CacheId = analysis.CacheId,
+                FileName = analysis.FileName,
+                DataHash = analysis.DataHash,
+                CachedAt = analysis.CachedAt,
+                LinesParsed = analysis.LinesParsed
+            };
+
+            var existingMetadata = _metadataCache.FirstOrDefault(m => m.CacheId == cacheId);
+            if (existingMetadata != null)
+                _metadataCache.Remove(existingMetadata);
+
+            _metadataCache.Add(metadata);
+            SaveMetadata();
+        }
+
+        public CachedAnalysis? LoadAnalysis(string cacheId)
+        {
+            var cachePath = Path.Combine(_cacheDirectory, $"{cacheId}.json");
+            if (!File.Exists(cachePath))
+                return null;
+
+            try
+            {
+                var serializationOptions = new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                };
+                
+                using var fs = File.OpenRead(cachePath);
+                return JsonSerializer.Deserialize<CachedAnalysis>(fs, serializationOptions);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public List<CachedAnalysisMetadata> GetAllCachedAnalyses() => new(_metadataCache);
+
+        public List<CachedAnalysisMetadata> SearchCachedAnalyses(string searchTerm)
+        {
+            var term = searchTerm.ToLower();
+            return _metadataCache
+                .Where(m => m.FileName.ToLower().Contains(term) || m.CacheId.ToLower().Contains(term))
+                .ToList();
+        }
+
+        public void DeleteAnalysis(string cacheId)
+        {
+            var cachePath = Path.Combine(_cacheDirectory, $"{cacheId}.json");
+            if (File.Exists(cachePath))
+                File.Delete(cachePath);
+
+            var metadata = _metadataCache.FirstOrDefault(m => m.CacheId == cacheId);
+            if (metadata != null)
+                _metadataCache.Remove(metadata);
+
+            SaveMetadata();
+        }
+
+        public void ClearAllCache()
+        {
+            foreach (var file in Directory.GetFiles(_cacheDirectory, "*.json"))
+            {
+                if (!file.EndsWith(METADATA_FILENAME, StringComparison.OrdinalIgnoreCase))
+                    File.Delete(file);
+            }
+            _metadataCache.Clear();
+            SaveMetadata();
+        }
+
+        private void SaveMetadata()
+        {
+            var metadataPath = Path.Combine(_cacheDirectory, METADATA_FILENAME);
+            var serializationOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = true
+            };
+            var json = JsonSerializer.Serialize(_metadataCache, serializationOptions);
+            File.WriteAllText(metadataPath, json);
+        }
+
+        private void LoadMetadata()
+        {
+            var metadataPath = Path.Combine(_cacheDirectory, METADATA_FILENAME);
+            if (!File.Exists(metadataPath))
+                return;
+
+            try
+            {
+                var json = File.ReadAllText(metadataPath);
+                var serializationOptions = new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                };
+                _metadataCache = JsonSerializer.Deserialize<List<CachedAnalysisMetadata>>(json, serializationOptions) ?? new();
+            }
+            catch
+            {
+                _metadataCache = new();
+            }
+        }
+    }
+}

@@ -5,24 +5,27 @@
     <ExcludedValue Name="/FaultField" />
     <ExcludedValue Name="/Fault_SupplyCurrLimit" />
     <ExcludedValue Name="/Fault_StatorCurrLimit" />
+    <ExcludedValue Name="/Fault_BridgeBrownout" />
+    <ExcludedValue Name="/ForwardHardLimit" />
+    <ExcludedValue Name="/ReverseHardLimit" />
 
     <!-- CAN Device Aliases -->
     <CANDiviceAlias LogName="TalonFX-20" Alias="FrontLeftDriveMotor"/>
     <CANDiviceAlias LogName="TalonFX-21" Alias="FrontLeftSteerMotor"/>
-    <CANDiviceAlias LogName="TalonFX-21" Alias="FrontLeftEncoder"/>
+    <CANDiviceAlias LogName="CANcoder-21" Alias="FrontLeftEncoder"/>
     <CANDiviceAlias LogName="TalonFX-3" Alias="FrontRightDriveMotor"/>
-    <CANDiviceAlias LogName="TalonFX-2" Alias="FrontRightSteerMotor"/>
-    <CANDiviceAlias LogName="TalonFX-2" Alias="FrontRightEncoder"/>
+    <!-- <CANDiviceAlias LogName="TalonFX-2" Alias="FrontRightSteerMotor"/> -->
+    <!-- <CANDiviceAlias LogName="CANcoder-2" Alias="FrontRightEncoder"/> -->
     <CANDiviceAlias LogName="TalonFX-23" Alias="BackLeftDriveMotor"/>
     <CANDiviceAlias LogName="TalonFX-22" Alias="BackLeftSteerMotor"/>
-    <CANDiviceAlias LogName="TalonFX-22" Alias="BackLeftEncoder"/>
-    <CANDiviceAlias LogName="TalonFX-1" Alias="BackRightDriveMotor"/>
+    <CANDiviceAlias LogName="CANcoder-22" Alias="BackLeftEncoder"/>
+    <!-- <CANDiviceAlias LogName="TalonFX-1" Alias="BackRightDriveMotor"/> -->
     <CANDiviceAlias LogName="TalonFX-0" Alias="BackRightSteerMotor"/>
-    <CANDiviceAlias LogName="TalonFX-0" Alias="BackRightEncoder"/>
-    
+    <CANDiviceAlias LogName="CANcoder-0" Alias="BackRightEncoder"/>
+
     <!-- Intake Motors -->
     <CANDiviceAlias LogName="TalonFX-16" Alias="Intake"/>
-    <CANDiviceAlias LogName="TalonFX-11" Alias="Extender"/>\
+    <CANDiviceAlias LogName="TalonFX-11" Alias="Extender"/>
     <CANDiviceAlias LogName="CANdi-11" Alias="IntakeCANdi"/>
 
     <!-- Launcher Motor -->
@@ -33,6 +36,6 @@
     <CANDiviceAlias LogName="TalonFX-5" Alias="Indexer"/>
     <CANDiviceAlias LogName="TalonFX-18" Alias="agitator"/>
     <CANDiviceAlias LogName="CANdi-7" Alias="HoodCANdi"/>
-    <CANDiviceAlias LogName="CANdi" Alias="TurretCANdi"/>
+    <CANDiviceAlias LogName="CANdi-6" Alias="TurretCANdi"/>
 
 </Config>

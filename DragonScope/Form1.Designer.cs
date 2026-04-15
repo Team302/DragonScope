@@ -3,10 +3,10 @@
     partial class Form1
     {
         private System.ComponentModel.IContainer components = null;
-        private System.Windows.Forms.Button btnSaveOutput;
         private System.Windows.Forms.Button btnOpenCsv;
         private System.Windows.Forms.Button btnOpenXml;
-        private System.Windows.Forms.Button btnOpenPlot; // NEW: Open Plot button
+        private System.Windows.Forms.Button btnOpenPlot;
+        private System.Windows.Forms.Button btnCacheBrowser;
         private System.Windows.Forms.Label lblCsvFile;
         private System.Windows.Forms.Label lblXmlFile;
         private System.Windows.Forms.Button btnDeleteLogs;
@@ -25,22 +25,21 @@
         {
             btnOpenXml = new Button();
             btnOpenCsv = new Button();
-            btnOpenPlot = new Button(); // instantiate
+            btnOpenPlot = new Button();
+            btnCacheBrowser = new Button();
             lblCsvFile = new Label();
             lblXmlFile = new Label();
             progressBar1 = new ProgressBar();
             textBoxOutput = new RichTextBox();
             HootLoad = new Button();
-            btnSaveOutput = new Button();
             btnDeleteLogs = new Button();
             SuspendLayout();
             // 
             // btnOpenXml
             // 
-            btnOpenXml.Location = new System.Drawing.Point(11, 11);
-            btnOpenXml.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+            btnOpenXml.Location = new Point(10, 8);
             btnOpenXml.Name = "btnOpenXml";
-            btnOpenXml.Size = new System.Drawing.Size(86, 31);
+            btnOpenXml.Size = new Size(75, 23);
             btnOpenXml.TabIndex = 0;
             btnOpenXml.Text = "Open XML";
             btnOpenXml.UseVisualStyleBackColor = true;
@@ -48,10 +47,9 @@
             // 
             // btnOpenCsv
             // 
-            btnOpenCsv.Location = new System.Drawing.Point(103, 11);
-            btnOpenCsv.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+            btnOpenCsv.Location = new Point(90, 8);
             btnOpenCsv.Name = "btnOpenCsv";
-            btnOpenCsv.Size = new System.Drawing.Size(86, 31);
+            btnOpenCsv.Size = new Size(75, 23);
             btnOpenCsv.TabIndex = 1;
             btnOpenCsv.Text = "Open CSV";
             btnOpenCsv.UseVisualStyleBackColor = true;
@@ -59,76 +57,72 @@
             // 
             // btnOpenPlot
             // 
-            btnOpenPlot.Location = new System.Drawing.Point(195, 11);
-            btnOpenPlot.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+            btnOpenPlot.Location = new Point(171, 8);
             btnOpenPlot.Name = "btnOpenPlot";
-            btnOpenPlot.Size = new System.Drawing.Size(110, 31);
+            btnOpenPlot.Size = new Size(96, 23);
             btnOpenPlot.TabIndex = 2;
             btnOpenPlot.Text = "Open Plot";
             btnOpenPlot.UseVisualStyleBackColor = true;
             btnOpenPlot.Click += btnOpenPlot_Click;
             // 
+            // btnCacheBrowser
+            // 
+            btnCacheBrowser.Location = new Point(272, 8);
+            btnCacheBrowser.Name = "btnCacheBrowser";
+            btnCacheBrowser.Size = new Size(96, 23);
+            btnCacheBrowser.TabIndex = 9;
+            btnCacheBrowser.Text = "Cache Browser";
+            btnCacheBrowser.UseVisualStyleBackColor = true;
+            btnCacheBrowser.Click += BtnCacheBrowser_Click;
+            // 
             // lblCsvFile
             // 
             lblCsvFile.AutoSize = true;
-            lblCsvFile.Location = new System.Drawing.Point(103, 49);
+            lblCsvFile.Location = new Point(90, 37);
             lblCsvFile.Name = "lblCsvFile";
-            lblCsvFile.Size = new System.Drawing.Size(0, 20);
+            lblCsvFile.Size = new Size(0, 15);
             lblCsvFile.TabIndex = 3;
             // 
             // lblXmlFile
             // 
             lblXmlFile.AutoSize = true;
-            lblXmlFile.Location = new System.Drawing.Point(11, 49);
+            lblXmlFile.Location = new Point(10, 37);
             lblXmlFile.Name = "lblXmlFile";
-            lblXmlFile.Size = new System.Drawing.Size(0, 20);
+            lblXmlFile.Size = new Size(0, 15);
             lblXmlFile.TabIndex = 4;
             // 
             // progressBar1
             // 
-            progressBar1.Location = new System.Drawing.Point(698, 11);
-            progressBar1.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+            progressBar1.Location = new Point(611, 8);
             progressBar1.Name = "progressBar1";
-            progressBar1.Size = new System.Drawing.Size(202, 31);
+            progressBar1.Size = new Size(177, 23);
             progressBar1.TabIndex = 7;
             // 
             // textBoxOutput
             // 
-            textBoxOutput.Location = new System.Drawing.Point(11, 83);
+            textBoxOutput.Location = new Point(10, 62);
+            textBoxOutput.Margin = new Padding(3, 2, 3, 2);
             textBoxOutput.Name = "textBoxOutput";
-            textBoxOutput.Size = new System.Drawing.Size(890, 505);
+            textBoxOutput.Size = new Size(779, 380);
             textBoxOutput.TabIndex = 8;
             textBoxOutput.Text = "";
             // 
             // HootLoad
             // 
-            HootLoad.Location = new System.Drawing.Point(806, 49);
+            HootLoad.Location = new Point(707, 37);
+            HootLoad.Margin = new Padding(3, 2, 3, 2);
             HootLoad.Name = "HootLoad";
-            HootLoad.Size = new System.Drawing.Size(94, 29);
+            HootLoad.Size = new Size(82, 22);
             HootLoad.TabIndex = 6;
             HootLoad.Text = "HootLoad";
             HootLoad.UseVisualStyleBackColor = true;
             HootLoad.Click += HootLoad_Click;
             // 
-            // btnSaveOutput
-            // 
-            btnSaveOutput.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right;
-            btnSaveOutput.AutoSize = true;
-            btnSaveOutput.Location = new System.Drawing.Point(673, 49);
-            btnSaveOutput.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
-            btnSaveOutput.Name = "btnSaveOutput";
-            btnSaveOutput.Size = new System.Drawing.Size(126, 29);
-            btnSaveOutput.TabIndex = 5;
-            btnSaveOutput.Text = "Save Output...";
-            btnSaveOutput.UseVisualStyleBackColor = true;
-            btnSaveOutput.Click += SaveOutputToTextFile_Click;
-            // 
             // btnDeleteLogs
             // 
-            btnDeleteLogs.Location = new System.Drawing.Point(565, 49);
-            btnDeleteLogs.Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
+            btnDeleteLogs.Location = new Point(611, 37);
             btnDeleteLogs.Name = "btnDeleteLogs";
-            btnDeleteLogs.Size = new System.Drawing.Size(102, 29);
+            btnDeleteLogs.Size = new Size(89, 22);
             btnDeleteLogs.TabIndex = 4;
             btnDeleteLogs.Text = "Clean Logs";
             btnDeleteLogs.UseVisualStyleBackColor = true;
@@ -136,20 +130,19 @@
             // 
             // Form1
             // 
-            AutoScaleDimensions = new System.Drawing.SizeF(8F, 20F);
-            AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            ClientSize = new System.Drawing.Size(912, 600);
+            AutoScaleDimensions = new SizeF(7F, 15F);
+            AutoScaleMode = AutoScaleMode.Font;
+            ClientSize = new Size(798, 450);
+            Controls.Add(btnCacheBrowser);
             Controls.Add(btnOpenPlot);
             Controls.Add(btnDeleteLogs);
             Controls.Add(HootLoad);
             Controls.Add(btnOpenXml);
             Controls.Add(textBoxOutput);
             Controls.Add(progressBar1);
-            Controls.Add(btnSaveOutput);
             Controls.Add(lblXmlFile);
             Controls.Add(lblCsvFile);
             Controls.Add(btnOpenCsv);
-            Margin = new System.Windows.Forms.Padding(3, 4, 3, 4);
             Name = "Form1";
             Text = "DragonScope";
             ResumeLayout(false);
