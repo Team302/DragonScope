@@ -433,6 +433,18 @@ namespace DragonScope
             cacheBrowser.ShowDialog(this);
         }
 
+        private void btnMotorStats_Click(object? sender, EventArgs e)
+        {
+            if (_csvSeries.Count == 0)
+            {
+                MessageBox.Show("No data loaded. Please load a CSV or cache file first.", "Motor Statistics", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var motorStatsForm = new MotorStatsForm(_csvSeries);
+            motorStatsForm.ShowDialog(this);
+        }
+
         #endregion
     }
 }

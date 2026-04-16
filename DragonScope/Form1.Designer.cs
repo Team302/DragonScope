@@ -13,6 +13,7 @@
         private System.Windows.Forms.ProgressBar progressBar1;
         private System.Windows.Forms.RichTextBox textBoxOutput;
         private System.Windows.Forms.Button HootLoad;
+        private System.Windows.Forms.Button btnMotorStats;
 
         protected override void Dispose(bool disposing)
         {
@@ -33,6 +34,7 @@
             textBoxOutput = new RichTextBox();
             HootLoad = new Button();
             btnDeleteLogs = new Button();
+            btnMotorStats = new Button();
             SuspendLayout();
             // 
             // btnOpenXml
@@ -128,11 +130,22 @@
             btnDeleteLogs.UseVisualStyleBackColor = true;
             btnDeleteLogs.Click += btnDeleteLogs_Click;
             // 
-            // Form1
+            // btnMotorStats
             // 
+            btnMotorStats.Location = new Point(373, 8);
+            btnMotorStats.Name = "btnMotorStats";
+            btnMotorStats.Size = new Size(109, 23);
+            btnMotorStats.TabIndex = 10;
+            btnMotorStats.Text = "Motor Stats";
+            btnMotorStats.UseVisualStyleBackColor = true;
+            btnMotorStats.Click += btnMotorStats_Click;
+            // 
+            // Form1
+            //
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(798, 450);
+            Controls.Add(btnMotorStats);
             Controls.Add(btnCacheBrowser);
             Controls.Add(btnOpenPlot);
             Controls.Add(btnDeleteLogs);
