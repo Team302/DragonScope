@@ -441,7 +441,7 @@ namespace DragonScope
                 return;
             }
 
-            var motorStatsForm = new MotorStatsForm(_csvSeries);
+            var motorStatsForm = new MotorStatsForm(_csvSeries, _csvSeries);
             motorStatsForm.ShowDialog(this);
         }
 

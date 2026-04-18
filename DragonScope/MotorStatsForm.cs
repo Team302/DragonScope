@@ -9,12 +9,26 @@ namespace DragonScope
     public partial class MotorStatsForm : Form
     {
         private readonly Dictionary<string, List<(double t, double v)>> _series;
+        private readonly List<(double t, double v)> _robotEnableData;
 
-        public MotorStatsForm(Dictionary<string, List<(double t, double v)>> series)
+        public MotorStatsForm(Dictionary<string, List<(double t, double v)>> series, 
+                             Dictionary<string, List<(double t, double v)>>? allSeriesData = null)
         {
             _series = new Dictionary<string, List<(double t, double v)>>(StringComparer.OrdinalIgnoreCase);
             foreach (var kvp in series)
                 _series[kvp.Key] = new List<(double t, double v)>(kvp.Value);
+
+            // Extract RobotEnable data if available
+            _robotEnableData = new List<(double t, double v)>();
+            if (allSeriesData != null)
+            {
+                var enableKey = allSeriesData.Keys.FirstOrDefault(k => 
+                    k.Contains("RobotEnable", StringComparison.OrdinalIgnoreCase));
+                if (enableKey != null && allSeriesData.TryGetValue(enableKey, out var enableData))
+                {
+                    _robotEnableData = new List<(double t, double v)>(enableData);
+                }
+            }
 
             InitializeComponent();
 
@@ -47,6 +61,20 @@ namespace DragonScope
             CalculateStatistics();
         }
 
+        private bool IsRobotEnabled(double time)
+        {
+            if (_robotEnableData.Count == 0)
+                return true; // Assume enabled if no enable data available
+
+            // Find the most recent enable state at or before this time
+            var enableAtTime = _robotEnableData.LastOrDefault(e => e.t <= time);
+            if (enableAtTime == default)
+                return false;
+
+            // Check if value is truthy (1.0 or true)
+            return enableAtTime.v > 0.5;
+        }
+
         private void CalculateStatistics()
         {
             resultsTextBox.Clear();
@@ -65,13 +93,14 @@ namespace DragonScope
                 return;
             }
 
-            // Extract values
-            var values = data.Select(p => p.v).ToList();
+            // Extract values and filter by robot enabled state
+            var enabledData = data.Where(p => IsRobotEnabled(p.t)).ToList();
+            var values = enabledData.Select(p => p.v).ToList();
 
             if (values.Count == 0)
             {
                 resultsTextBox.SelectionColor = Color.Red;
-                resultsTextBox.AppendText("No values to analyze.\n");
+                resultsTextBox.AppendText("No values to analyze during enabled period.\n");
                 return;
             }
 
@@ -88,23 +117,23 @@ namespace DragonScope
             var negativeCount = values.Count(v => v < 0);
             var positiveCount = values.Count(v => v > 0);
 
-            // Time information
-            var times = data.Select(p => p.t).ToList();
+            // Time information (from enabled data only)
+            var times = enabledData.Select(p => p.t).ToList();
             var minTime = times.Min();
             var maxTime = times.Max();
             var duration = maxTime - minTime;
 
             // Find when min/max occurred
-            var minIndex = data.FindIndex(p => p.v == min);
-            var maxIndex = data.FindIndex(p => p.v == max);
-            var minTimeValue = minIndex >= 0 ? data[minIndex].t : 0;
-            var maxTimeValue = maxIndex >= 0 ? data[maxIndex].t : 0;
+            var minIndex = enabledData.FindIndex(p => p.v == min);
+            var maxIndex = enabledData.FindIndex(p => p.v == max);
+            var minTimeValue = minIndex >= 0 ? enabledData[minIndex].t : 0;
+            var maxTimeValue = maxIndex >= 0 ? enabledData[maxIndex].t : 0;
 
             // Append results
             resultsTextBox.SelectionColor = Color.DarkBlue;
             resultsTextBox.AppendText($"Series: {selectedSeries}\n");
             resultsTextBox.SelectionColor = Color.Black;
-            resultsTextBox.AppendText($"Data Points: {values.Count}\n\n");
+            resultsTextBox.AppendText($"Data Points (Robot Enabled): {values.Count} / {data.Count} total\n\n");
 
             resultsTextBox.SelectionColor = Color.DarkGreen;
             resultsTextBox.AppendText("=== Time Information ===\n");
@@ -114,7 +143,7 @@ namespace DragonScope
             resultsTextBox.AppendText($"Duration:          {duration:F3} s\n\n");
 
             resultsTextBox.SelectionColor = Color.DarkGreen;
-            resultsTextBox.AppendText("=== Current Statistics ===\n");
+            resultsTextBox.AppendText("=== Current Statistics (Robot Enabled Only) ===\n");
             resultsTextBox.SelectionColor = Color.Black;
             resultsTextBox.AppendText($"Minimum Current:   {min:F6} A (at t={minTimeValue:F3} s)\n");
             resultsTextBox.AppendText($"Maximum Current:   {max:F6} A (at t={maxTimeValue:F3} s)\n");

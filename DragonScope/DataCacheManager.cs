@@ -8,6 +8,38 @@ using System.Text.Json.Serialization;
 
 namespace DragonScope
 {
+    // Custom converter for (double t, double v) tuples
+    public class DataPointConverter : JsonConverter<(double t, double v)>
+    {
+        public override (double t, double v) Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.StartArray)
+                throw new JsonException("Expected array for data point tuple");
+
+            reader.Read();
+            if (!reader.TryGetDouble(out var t))
+                throw new JsonException("Failed to read time value");
+
+            reader.Read();
+            if (!reader.TryGetDouble(out var v))
+                throw new JsonException("Failed to read value");
+
+            reader.Read();
+            if (reader.TokenType != JsonTokenType.EndArray)
+                throw new JsonException("Expected end of array");
+
+            return (t, v);
+        }
+
+        public override void Write(Utf8JsonWriter writer, (double t, double v) value, JsonSerializerOptions options)
+        {
+            writer.WriteStartArray();
+            writer.WriteNumberValue(value.t);
+            writer.WriteNumberValue(value.v);
+            writer.WriteEndArray();
+        }
+    }
+
     public class CachedAnalysis
     {
         public string CacheId { get; set; } = "";
@@ -33,6 +65,7 @@ namespace DragonScope
         private readonly string _cacheDirectory;
         private const string METADATA_FILENAME = "cache_metadata.json";
         private List<CachedAnalysisMetadata> _metadataCache = new();
+        private readonly JsonSerializerOptions _serializationOptions;
 
         public DataCacheManager()
         {
@@ -41,6 +74,14 @@ namespace DragonScope
                 "DragonScope",
                 "DataCache");
             Directory.CreateDirectory(_cacheDirectory);
+            
+            _serializationOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = false,
+                Converters = { new DataPointConverter() }
+            };
+            
             LoadMetadata();
         }
 
@@ -137,15 +178,9 @@ namespace DragonScope
             var cacheId = analysis.CacheId;
             var cachePath = Path.Combine(_cacheDirectory, $"{cacheId}.json");
 
-            var serializationOptions = new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                WriteIndented = false
-            };
-
             using (var fs = File.Create(cachePath))
             {
-                JsonSerializer.Serialize(fs, analysis, serializationOptions);
+                JsonSerializer.Serialize(fs, analysis, _serializationOptions);
             }
 
             var metadata = new CachedAnalysisMetadata
@@ -173,13 +208,8 @@ namespace DragonScope
 
             try
             {
-                var serializationOptions = new JsonSerializerOptions
-                {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                };
-                
                 using var fs = File.OpenRead(cachePath);
-                return JsonSerializer.Deserialize<CachedAnalysis>(fs, serializationOptions);
+                return JsonSerializer.Deserialize<CachedAnalysis>(fs, _serializationOptions);
             }
             catch
             {
