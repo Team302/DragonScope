@@ -349,6 +349,23 @@ namespace DragonScope
                     return null;
                 }
 
+                // Check for legacy/corrupted cache where points are (0,0) due to previous JSON field serialization bug
+                bool corrupted = false;
+                foreach (var list in analysis.CsvSeries.Values)
+                {
+                    if (list.Count > 10 && list.All(p => p.t == 0 && p.v == 0))
+                    {
+                        corrupted = true;
+                        break;
+                    }
+                }
+
+                if (corrupted)
+                {
+                    MessageBox.Show("This cached analysis appears to be corrupted (all data points are exactly 0). This is caused by loading a cache made before the latest JSON serialization fix.\n\nPlease clear your caches inside the Cache Browser and re-parse your logs to fix this issue.", "Legacy Cache Detected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return null;
+                }
+
                 _csvSeries.Clear();
                 foreach (var kvp in analysis.CsvSeries)
                     _csvSeries[kvp.Key] = new List<(double t, double v)>(kvp.Value);

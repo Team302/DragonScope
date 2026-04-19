@@ -1,9 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Linq;
-using System.Windows.Forms;
-using ScottPlot;
 using ScottPlot.WinForms;
 
 namespace DragonScope
@@ -23,111 +17,114 @@ namespace DragonScope
 
         private void InitializeComponent()
         {
-            this.components = new System.ComponentModel.Container();
-            this.AutoScaleMode = AutoScaleMode.Font;
-            this.ClientSize = new Size(1200, 700);
-            this.Text = "Multi-Cache Motor Analysis";
-            this.Name = "MultiCacheMotorAnalysisForm";
-            this.StartPosition = FormStartPosition.CenterParent;
-
-            // Top panel for controls
-            var topPanel = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 120,
-                BorderStyle = BorderStyle.FixedSingle
-            };
-            this.Controls.Add(topPanel);
-
-            // Row 1: Cache selection
-            var lblCaches = new System.Windows.Forms.Label
-            {
-                Text = "Select Caches:",
-                Location = new Point(12, 12),
-                AutoSize = true
-            };
-            topPanel.Controls.Add(lblCaches);
-
-            var cacheListBox = new CheckedListBox
-            {
-                Name = "cacheListBox",
-                Location = new Point(120, 12),
-                Width = 350,
-                Height = 95
-            };
-            cacheListBox.ItemCheck += CacheListBox_ItemCheck;
-            topPanel.Controls.Add(cacheListBox);
-
-            // Row 1: Series selection
-            var lblSeries = new System.Windows.Forms.Label
-            {
-                Text = "Motor Current Signal:",
-                Location = new Point(480, 12),
-                AutoSize = true
-            };
-            topPanel.Controls.Add(lblSeries);
-
-            var seriesCombo = new ComboBox
-            {
-                Name = "seriesCombo",
-                Location = new Point(620, 12),
-                Width = 300,
-                Height = 23,
-                DropDownStyle = ComboBoxStyle.DropDownList
-            };
-            seriesCombo.SelectedIndexChanged += SeriesCombo_SelectedIndexChanged;
-            topPanel.Controls.Add(seriesCombo);
-
-            // Row 2: Analyze button
-            var btnAnalyze = new Button
-            {
-                Text = "Analyze & Plot",
-                Location = new Point(480, 45),
-                Width = 100,
-                Height = 23
-            };
+            topPanel = new Panel();
+            lblSeries = new Label();
+            btnAnalyze = new Button();
+            btnExport = new Button();
+            lblColors = new Label();
+            colorPanel = new FlowLayoutPanel();
+            lblCaches = new Label();
+            cacheListBox = new CheckedListBox();
+            seriesCombo = new ComboBox();
+            formsPlot = new FormsPlot();
+            SuspendLayout();
+            // 
+            // topPanel
+            // 
+            topPanel.Location = new Point(12, 168);
+            topPanel.Name = "topPanel";
+            topPanel.Size = new Size(200, 123);
+            topPanel.TabIndex = 0;
+            // 
+            // lblSeries
+            // 
+            lblSeries.Location = new Point(156, 125);
+            lblSeries.Name = "lblSeries";
+            lblSeries.Size = new Size(100, 23);
+            lblSeries.TabIndex = 2;
+            // 
+            // btnAnalyze
+            // 
+            btnAnalyze.Location = new Point(313, 105);
+            btnAnalyze.Name = "btnAnalyze";
+            btnAnalyze.Size = new Size(75, 23);
+            btnAnalyze.TabIndex = 4;
+            btnAnalyze.Text = "Analyze";
             btnAnalyze.Click += BtnAnalyze_Click;
-            topPanel.Controls.Add(btnAnalyze);
-
-            var btnExport = new Button
-            {
-                Text = "Export Data",
-                Location = new Point(590, 45),
-                Width = 100,
-                Height = 23
-            };
+            // 
+            // btnExport
+            // 
+            btnExport.Location = new Point(394, 105);
+            btnExport.Name = "btnExport";
+            btnExport.Size = new Size(75, 23);
+            btnExport.TabIndex = 5;
+            btnExport.Text = "Export";
             btnExport.Click += BtnExport_Click;
-            topPanel.Controls.Add(btnExport);
-
-            // Row 2: Color customization
-            var lblColors = new System.Windows.Forms.Label
-            {
-                Text = "Colors:",
-                Location = new Point(480, 75),
-                AutoSize = true
-            };
-            topPanel.Controls.Add(lblColors);
-
-            var colorPanel = new FlowLayoutPanel
-            {
-                Name = "colorPanel",
-                Location = new Point(540, 70),
-                Width = 380,
-                Height = 35,
-                AutoScroll = true
-            };
-            topPanel.Controls.Add(colorPanel);
-
-            // Main plot area
-            var formsPlot = new FormsPlot
-            {
-                Name = "formsPlot",
-                Dock = DockStyle.Fill
-            };
-            formsPlot.Plot.Title("Motor Current Analysis (Robot Enabled Only)");
-            formsPlot.Plot.XLabel("Time (s from First Enable)");
-            formsPlot.Plot.YLabel("Current (A)");
-            this.Controls.Add(formsPlot);
+            // 
+            // lblColors
+            // 
+            lblColors.Location = new Point(185, 102);
+            lblColors.Name = "lblColors";
+            lblColors.Size = new Size(100, 23);
+            lblColors.TabIndex = 6;
+            // 
+            // colorPanel
+            // 
+            colorPanel.Location = new Point(227, 168);
+            colorPanel.Name = "colorPanel";
+            colorPanel.Size = new Size(200, 123);
+            colorPanel.TabIndex = 7;
+            // 
+            // lblCaches
+            // 
+            lblCaches.Location = new Point(207, 102);
+            lblCaches.Name = "lblCaches";
+            lblCaches.Size = new Size(100, 23);
+            lblCaches.TabIndex = 0;
+            // 
+            // cacheListBox
+            // 
+            cacheListBox.Location = new Point(317, 41);
+            cacheListBox.Name = "cacheListBox";
+            cacheListBox.Size = new Size(134, 58);
+            cacheListBox.TabIndex = 1;
+            cacheListBox.ItemCheck += CacheListBox_ItemCheck;
+            // 
+            // seriesCombo
+            // 
+            seriesCombo.Location = new Point(317, 12);
+            seriesCombo.Name = "seriesCombo";
+            seriesCombo.Size = new Size(121, 23);
+            seriesCombo.TabIndex = 3;
+            seriesCombo.SelectedIndexChanged += SeriesCombo_SelectedIndexChanged;
+            // 
+            // formsPlot
+            // 
+            formsPlot.DisplayScale = 1F;
+            formsPlot.Location = new Point(0, 12);
+            formsPlot.Name = "formsPlot";
+            formsPlot.Size = new Size(150, 150);
+            formsPlot.TabIndex = 1;
+            // 
+            // MultiCacheMotorAnalysisForm
+            // 
+            AutoScaleDimensions = new SizeF(7F, 15F);
+            AutoScaleMode = AutoScaleMode.Font;
+            ClientSize = new Size(512, 303);
+            Controls.Add(lblColors);
+            Controls.Add(btnExport);
+            Controls.Add(colorPanel);
+            Controls.Add(btnAnalyze);
+            Controls.Add(lblSeries);
+            Controls.Add(lblCaches);
+            Controls.Add(topPanel);
+            Controls.Add(cacheListBox);
+            Controls.Add(seriesCombo);
+            Controls.Add(formsPlot);
+            Name = "MultiCacheMotorAnalysisForm";
+            StartPosition = FormStartPosition.CenterParent;
+            Text = "Multi-Cache Motor Analysis";
+            ResumeLayout(false);
         }
 
         private void LoadCacheList()
@@ -290,6 +287,23 @@ namespace DragonScope
 
                 if (analysis?.CsvSeries == null) continue;
 
+                // Check for legacy/corrupted cache where points are (0,0) due to previous JSON field serialization bug
+                bool corrupted = false;
+                foreach (var list in analysis.CsvSeries.Values)
+                {
+                    if (list.Count > 10 && list.All(p => p.t == 0 && p.v == 0))
+                    {
+                        corrupted = true;
+                        break;
+                    }
+                }
+
+                if (corrupted)
+                {
+                    MessageBox.Show($"Warning: Cache '{cacheMetadata.FileName}' appears to be corrupted (all data points are exactly 0). This is caused by loading a cache made before the latest JSON serialization fix.\n\nPlease clear your caches and re-parse your logs to fix this issue.", "Legacy Cache Detected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
                 // Try to find exact match or case-insensitive match
                 var currentSeries = analysis.CsvSeries.FirstOrDefault(kvp =>
                     kvp.Key.Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)).Value;
@@ -319,9 +333,6 @@ namespace DragonScope
         {
             _filteredData.Clear();
 
-            // Find the earliest robot enable time across all caches
-            double? globalMinTime = null;
-
             foreach (var kvp in _selectedCaches)
             {
                 var cacheKey = kvp.Key;
@@ -332,66 +343,24 @@ namespace DragonScope
 
                 if (currentSeries == null) continue;
 
-                // Extract RobotEnable data
-                var robotEnableData = new List<(double t, double v)>();
-                var enableKey = analysis.CsvSeries.Keys.FirstOrDefault(k =>
-                    k.Contains("RobotEnable", StringComparison.OrdinalIgnoreCase));
-
-                if (enableKey != null && analysis.CsvSeries.TryGetValue(enableKey, out var enableData))
-                {
-                    robotEnableData = new List<(double t, double v)>(enableData);
-                }
-
-                // Filter current data by robot-enabled state and normalize time
+                // Time is already normalized to RobotEnable in the parser, so point.t >= 0 is enabled
                 var filtered = new List<(double t, double v)>();
-                double? minEnabledTime = null;
-
                 foreach (var point in currentSeries)
                 {
-                    if (IsRobotEnabled(point.t, robotEnableData))
+                    if (point.t >= 0)
                     {
-                        if (minEnabledTime == null)
-                            minEnabledTime = point.t;
-
                         filtered.Add(point);
                     }
                 }
 
-                if (minEnabledTime.HasValue)
+                if (filtered.Count == 0)
                 {
-                    if (globalMinTime == null || minEnabledTime < globalMinTime)
-                        globalMinTime = minEnabledTime;
-
-                    _filteredData[cacheKey] = filtered;
+                    // Fallback to all data if there's no data past enable
+                    filtered = currentSeries;
                 }
+
+                _filteredData[cacheKey] = filtered;
             }
-
-            // Normalize all times to start from global minimum
-            if (globalMinTime.HasValue)
-            {
-                var normalized = new Dictionary<string, List<(double t, double v)>>();
-                foreach (var kvp in _filteredData)
-                {
-                    normalized[kvp.Key] = kvp.Value.Select(p => (p.t - globalMinTime.Value, p.v)).ToList();
-                }
-                _filteredData.Clear();
-                foreach (var kvp in normalized)
-                {
-                    _filteredData[kvp.Key] = kvp.Value;
-                }
-            }
-        }
-
-        private bool IsRobotEnabled(double time, List<(double t, double v)> robotEnableData)
-        {
-            if (robotEnableData.Count == 0)
-                return true;
-
-            var enableAtTime = robotEnableData.LastOrDefault(e => e.t <= time);
-            if (enableAtTime == default)
-                return false;
-
-            return enableAtTime.v > 0.5;
         }
 
         private void RefreshPlot()
@@ -432,6 +401,7 @@ namespace DragonScope
             formsPlot.Plot.XLabel("Time (s from First Enable)");
             formsPlot.Plot.YLabel("Current (A)");
             formsPlot.Plot.Title("Motor Current Analysis (Robot Enabled Only)");
+            formsPlot.Plot.Axes.AutoScale();
             formsPlot.Refresh();
         }
 
@@ -522,5 +492,16 @@ namespace DragonScope
         }
 
         private System.ComponentModel.IContainer components;
+
+        private Panel topPanel;
+        private System.Windows.Forms.Label lblCaches;
+        private CheckedListBox cacheListBox;
+        private System.Windows.Forms.Label lblSeries;
+        private ComboBox seriesCombo;
+        private Button btnAnalyze;
+        private Button btnExport;
+        private System.Windows.Forms.Label lblColors;
+        private FlowLayoutPanel colorPanel;
+        private FormsPlot formsPlot;
     }
 }
