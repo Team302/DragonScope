@@ -15,6 +15,7 @@ namespace DragonScope
         private ComboBox seriesCombo;
         private Button btnAnalyze;
         private Button btnExport;
+        private Button btnSelectAll;
         private Label lblColors;
         private FlowLayoutPanel colorPanel;
         private FormsPlot formsPlot;
@@ -39,6 +40,7 @@ namespace DragonScope
         {
             btnAnalyze = new Button();
             btnExport = new Button();
+            btnSelectAll = new Button();
             colorPanel = new FlowLayoutPanel();
             cacheListBox = new CheckedListBox();
             seriesCombo = new ComboBox();
@@ -64,6 +66,15 @@ namespace DragonScope
             btnExport.Text = "Export";
             btnExport.Click += BtnExport_Click;
             // 
+            // btnSelectAll
+            // 
+            btnSelectAll.Location = new Point(12, 134);
+            btnSelectAll.Name = "btnSelectAll";
+            btnSelectAll.Size = new Size(156, 23);
+            btnSelectAll.TabIndex = 9;
+            btnSelectAll.Text = "Select/Unselect All";
+            btnSelectAll.Click += BtnSelectAll_Click;
+            // 
             // colorPanel
             // 
             colorPanel.Location = new Point(174, 41);
@@ -75,7 +86,7 @@ namespace DragonScope
             // 
             cacheListBox.Location = new Point(12, 41);
             cacheListBox.Name = "cacheListBox";
-            cacheListBox.Size = new Size(134, 58);
+            cacheListBox.Size = new Size(156, 58);
             cacheListBox.TabIndex = 1;
             cacheListBox.ItemCheck += CacheListBox_ItemCheck;
             // 
@@ -110,6 +121,7 @@ namespace DragonScope
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(686, 626);
             Controls.Add(statusTextBox);
+            Controls.Add(btnSelectAll);
             Controls.Add(btnExport);
             Controls.Add(colorPanel);
             Controls.Add(btnAnalyze);

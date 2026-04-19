@@ -148,6 +148,30 @@ namespace DragonScope
             }));
         }
 
+        private void BtnSelectAll_Click(object? sender, EventArgs e)
+        {
+            var cacheListBox = this.Controls.Find("cacheListBox", true).FirstOrDefault() as CheckedListBox;
+            if (cacheListBox == null || cacheListBox.Items.Count == 0) return;
+
+            // Check if all are currently selected
+            bool allSelected = true;
+            for (int i = 0; i < cacheListBox.Items.Count; i++)
+            {
+                if (!cacheListBox.GetItemChecked(i))
+                {
+                    allSelected = false;
+                    break;
+                }
+            }
+
+            // If all are selected, unselect all. Otherwise, select all.
+            bool newState = !allSelected;
+            for (int i = 0; i < cacheListBox.Items.Count; i++)
+            {
+                cacheListBox.SetItemChecked(i, newState);
+            }
+        }
+
         private void SeriesCombo_SelectedIndexChanged(object? sender, EventArgs e)
         {
             UpdateColorPanel();
@@ -385,10 +409,20 @@ namespace DragonScope
                     ys[i] = data[i].v;
                 }
 
-                var scatter = formsPlot.Plot.Add.Scatter(xs, ys);
-                scatter.LegendText = cacheKey.Split('_')[0]; // Use filename part for legend
-                scatter.LineWidth = 1.5f;
-                scatter.Color = ToPlotColor(color);
+                if (data.Count > 100_000)
+                {
+                    var sig = formsPlot.Plot.Add.SignalXY(xs, ys);
+                    sig.LegendText = cacheKey.Split('_')[0]; // Use filename part for legend
+                    sig.LineWidth = 1.5f;
+                    sig.Color = ToPlotColor(color);
+                }
+                else
+                {
+                    var scatter = formsPlot.Plot.Add.Scatter(xs, ys);
+                    scatter.LegendText = cacheKey.Split('_')[0]; // Use filename part for legend
+                    scatter.LineWidth = 1.5f;
+                    scatter.Color = ToPlotColor(color);
+                }
             }
 
             formsPlot.Plot.Legend.IsVisible = true;

@@ -108,9 +108,18 @@ namespace DragonScope
                     ys[i] = pts[i].v;
                 }
 
-                var scatter = formsPlot.Plot.Add.Scatter(xs, ys);
-                scatter.LegendText = key;
-                scatter.LineWidth = 1.5f;
+                if (pts.Count > 100_000)
+                {
+                    var sig = formsPlot.Plot.Add.SignalXY(xs, ys);
+                    sig.LegendText = key;
+                    sig.LineWidth = 1.5f;
+                }
+                else
+                {
+                    var scatter = formsPlot.Plot.Add.Scatter(xs, ys);
+                    scatter.LegendText = key;
+                    scatter.LineWidth = 1.5f;
+                }
             }
 
             if (chkShowErrors.Checked && _conditions.Count > 0)
