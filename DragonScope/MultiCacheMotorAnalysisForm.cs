@@ -11,6 +11,7 @@ namespace DragonScope
         public MultiCacheMotorAnalysisForm(DataCacheManager cacheManager)
         {
             _cacheManager = cacheManager ?? throw new ArgumentNullException(nameof(cacheManager));
+            InitializeComponent();
             LoadCacheList();
         }
 
