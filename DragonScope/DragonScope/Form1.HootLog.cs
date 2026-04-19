@@ -384,7 +384,7 @@ namespace DragonScope
             }
             
             // Cache the merged multi-file analysis
-            CacheCurrentAnalysis($"Combined_{combinedFiles}_{DateTime.Now:yyyyMMdd_HHmmss}", totalLinesParsed);
+            await CacheCurrentAnalysisAsync($"Combined_{combinedFiles}_{DateTime.Now:yyyyMMdd_HHmmss}", totalLinesParsed);
 
             CompactHeap();
         }

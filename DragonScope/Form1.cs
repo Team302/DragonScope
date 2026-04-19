@@ -338,6 +338,33 @@ namespace DragonScope
             }
         }
 
+        private async Task CacheCurrentAnalysisAsync(string fileName, int linesParsed)
+        {
+            try
+            {
+                string dataHash = await Task.Run(() => _cacheManager.GenerateDataHash(_csvSeries, _lastConditions));
+                string cacheId = Guid.NewGuid().ToString("N");
+
+                var analysis = new CachedAnalysis
+                {
+                    CacheId = cacheId,
+                    FileName = fileName,
+                    DataHash = dataHash,
+                    CachedAt = DateTime.Now,
+                    LinesParsed = linesParsed,
+                    CsvSeries = new Dictionary<string, List<(double t, double v)>>(_csvSeries),
+                    Conditions = new List<ParsedCondition>(_lastConditions)
+                };
+
+                await _cacheManager.SaveAnalysisAsync(analysis);
+                WriteToTextBox($"Analysis cached: {fileName} (ID: {cacheId})", 0);
+            }
+            catch (Exception ex)
+            {
+                WriteToTextBox($"Failed to cache analysis: {ex.Message}", 1);
+            }
+        }
+
         public CachedAnalysis? LoadCachedAnalysis(string cacheId)
         {
             try
@@ -374,6 +401,76 @@ namespace DragonScope
                     .OrderBy(c => c.End ?? c.Start)
                     .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
                     .ToList();
+                
+                lblCsvFile.Text = $"[CACHED] {analysis.FileName}";
+                progressBar1.Value = 100;
+
+                textBoxOutput.Clear();
+                _writtenMessages.Clear();
+
+                foreach (var c in _lastConditions)
+                {
+                    string msg = c.Kind switch
+                    {
+                        ConditionKind.BoolTrue => $"\"{c.Name}\" was true from {c.Start} to {c.End}",
+                        ConditionKind.RangeOutOfBounds => $"\"{c.Name}\" was out of bounds from {c.Start} to {c.End}",
+                        ConditionKind.OpenEnded => $"\"{c.Name}\" started at {c.Start} and did not end.",
+                        _ => $"\"{c.Name}\" event at {c.Start}"
+                    };
+                    WriteToTextBox(msg, c.Priority);
+                }
+
+                WriteToTextBox($"Loaded cached analysis: {analysis.FileName} ({analysis.LinesParsed} lines)", 0);
+                WriteToTextBox($"Data Hash: {analysis.DataHash}", 0);
+
+                if (_plotForm != null && !_plotForm.IsDisposed)
+                    _plotForm.UpdateData(_csvSeries, _lastConditions);
+
+                return analysis;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading cached analysis: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return null;
+            }
+        }
+
+        public async Task<CachedAnalysis?> LoadCachedAnalysisAsync(string cacheId)
+        {
+            try
+            {
+                var analysis = await Task.Run(() => _cacheManager.LoadAnalysis(cacheId));
+                if (analysis == null)
+                {
+                    MessageBox.Show("Failed to load cached analysis.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return null;
+                }
+
+                // Check for legacy/corrupted cache where points are (0,0) due to previous JSON field serialization bug
+                bool corrupted = false;
+                foreach (var list in analysis.CsvSeries.Values)
+                {
+                    if (list.Count > 10 && list.All(p => p.t == 0 && p.v == 0))
+                    {
+                        corrupted = true;
+                        break;
+                    }
+                }
+
+                if (corrupted)
+                {
+                    MessageBox.Show("This cached analysis appears to be corrupted (all data points are exactly 0). This is caused by loading a cache made before the latest JSON serialization fix.\n\nPlease clear your caches inside the Cache Browser and re-parse your logs to fix this issue.", "Legacy Cache Detected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return null;
+                }
+
+                _csvSeries.Clear();
+                foreach (var kvp in analysis.CsvSeries)
+                    _csvSeries[kvp.Key] = new List<(double t, double v)>(kvp.Value);
+
+                _lastConditions = await Task.Run(() => analysis.Conditions
+                    .OrderBy(c => c.End ?? c.Start)
+                    .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList());
                 
                 lblCsvFile.Text = $"[CACHED] {analysis.FileName}";
                 progressBar1.Value = 100;

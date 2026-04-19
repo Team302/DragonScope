@@ -209,7 +209,7 @@ namespace DragonScope
             BtnLoad_Click(null, EventArgs.Empty);
         }
 
-        private void BtnLoad_Click(object? sender, EventArgs e)
+        private async void BtnLoad_Click(object? sender, EventArgs e)
         {
             var listView = this.Controls.OfType<ListViewEx>().FirstOrDefault();
             if (listView?.SelectedItems.Count > 0)
@@ -218,7 +218,9 @@ namespace DragonScope
                 var cacheId = selectedItem.Tag?.ToString();
                 if (cacheId != null)
                 {
-                    _parentForm.LoadCachedAnalysis(cacheId);
+                    this.Enabled = false;
+                    await _parentForm.LoadCachedAnalysisAsync(cacheId);
+                    this.Enabled = true;
                     MessageBox.Show("Cached analysis loaded into RAM and displayed in the grapher.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
@@ -226,6 +228,7 @@ namespace DragonScope
             {
                 MessageBox.Show("Please select an analysis to load.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
+            this.Close();
         }
 
         private void BtnDelete_Click(object? sender, EventArgs e)

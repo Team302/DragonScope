@@ -85,7 +85,7 @@ namespace DragonScope
                 _plotForm.UpdateData(_csvSeries, _lastConditions);
 
             // Automatically cache the analysis
-            CacheCurrentAnalysis(Path.GetFileNameWithoutExtension(filePath), conditionLineCount);
+            await CacheCurrentAnalysisAsync(Path.GetFileNameWithoutExtension(filePath), conditionLineCount);
 
             // Release large array and reclaim memory
             lines = null;

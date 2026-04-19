@@ -226,6 +226,34 @@ namespace DragonScope
             SaveMetadata();
         }
 
+        public async Task SaveAnalysisAsync(CachedAnalysis analysis)
+        {
+            var cacheId = analysis.CacheId;
+            var cachePath = Path.Combine(_cacheDirectory, $"{cacheId}.json");
+
+            using (var fs = File.Create(cachePath))
+            {
+                await JsonSerializer.SerializeAsync(fs, analysis, _serializationOptions);
+            }
+
+            var metadata = new CachedAnalysisMetadata
+            {
+                CacheId = analysis.CacheId,
+                FileName = analysis.FileName,
+                DataHash = analysis.DataHash,
+                CachedAt = analysis.CachedAt,
+                LinesParsed = analysis.LinesParsed,
+                SeriesKeys = analysis.CsvSeries.Keys.ToList()
+            };
+
+            var existingMetadata = _metadataCache.FirstOrDefault(m => m.CacheId == cacheId);
+            if (existingMetadata != null)
+                _metadataCache.Remove(existingMetadata);
+
+            _metadataCache.Add(metadata);
+            SaveMetadata();
+        }
+
         public CachedAnalysis? LoadAnalysis(string cacheId)
         {
             var cachePath = Path.Combine(_cacheDirectory, $"{cacheId}.json");
