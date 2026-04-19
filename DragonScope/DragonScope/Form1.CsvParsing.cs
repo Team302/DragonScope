@@ -50,18 +50,21 @@ namespace DragonScope
             var (series, seriesLineCount) = seriesTask.Result;
             var (conditions, conditionLineCount) = conditionsTask.Result;
 
-            if (!_multiFileMode)
-                _csvSeries.Clear();
-
-            foreach (var kvp in series)
+            await Task.Run(() => 
             {
-                if (_csvSeries.TryGetValue(kvp.Key, out var existing))
-                    existing.AddRange(kvp.Value);
-                else
-                    _csvSeries[kvp.Key] = kvp.Value;
-            }
+                if (!_multiFileMode)
+                    _csvSeries.Clear();
 
-            _lastConditions = conditions;
+                foreach (var kvp in series)
+                {
+                    if (_csvSeries.TryGetValue(kvp.Key, out var existing))
+                        existing.AddRange(kvp.Value);
+                    else
+                        _csvSeries[kvp.Key] = kvp.Value;
+                }
+
+                _lastConditions = conditions;
+            });
 
             // Write condition messages to output
             foreach (var c in _lastConditions)

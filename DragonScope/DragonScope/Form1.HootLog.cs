@@ -330,30 +330,32 @@ namespace DragonScope
             WriteProgressBar("Merging series data...", completedSteps, totalSteps);
 
             _csvSeries.Clear();
-            var allConditions = new List<ParsedCondition>();
+
             int totalLinesParsed = 0;
-
-            foreach (var r in results)
+            
+            await Task.Run(() => 
             {
-                if (r.Series.Count == 0 && r.Conditions.Count == 0) continue;
-                totalLinesParsed += r.LinesParsed;
-                allConditions.AddRange(r.Conditions);
-
-                foreach (var kvp in r.Series)
+                var allConditions = new List<ParsedCondition>();
+                foreach (var r in results)
                 {
-                    if (_csvSeries.TryGetValue(kvp.Key, out var existing))
-                        existing.AddRange(kvp.Value);
-                    else
-                        _csvSeries[kvp.Key] = kvp.Value;
+                    if (r.Series.Count == 0 && r.Conditions.Count == 0) continue;
+                    totalLinesParsed += r.LinesParsed;
+                    allConditions.AddRange(r.Conditions);
+
+                    foreach (var kvp in r.Series)
+                    {
+                        if (!_csvSeries.ContainsKey(kvp.Key))
+                            _csvSeries[kvp.Key] = kvp.Value;
+                    }
                 }
-            }
 
-            _lastConditions = allConditions
-                .OrderBy(c => c.End ?? c.Start)
-                .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            allConditions = null;
+                _lastConditions = allConditions
+                    .GroupBy(c => new { c.Name, c.Start, c.End, c.Priority, c.Kind })
+                    .Select(g => g.First())
+                    .OrderBy(c => c.End ?? c.Start)
+                    .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            });
 
             completedSteps = totalSteps;
             WriteProgressBar($"Done - {totalFiles} file(s), {totalLinesParsed} lines merged", completedSteps, totalSteps);

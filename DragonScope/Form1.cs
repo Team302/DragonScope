@@ -175,17 +175,22 @@ namespace DragonScope
                 if (confirm != DialogResult.Yes) return;
 
                 int filesDeleted = 0, foldersDeleted = 0, errors = 0;
-                foreach (var file in Directory.GetFiles(dir))
+                
+                Task.Run(() =>
                 {
-                    try { File.Delete(file); filesDeleted++; } catch { errors++; }
-                }
-                foreach (var sub in Directory.GetDirectories(dir))
+                    foreach (var file in Directory.GetFiles(dir))
+                    {
+                        try { File.Delete(file); filesDeleted++; } catch { errors++; }
+                    }
+                    foreach (var sub in Directory.GetDirectories(dir))
+                    {
+                        try { Directory.Delete(sub, true); foldersDeleted++; } catch { errors++; }
+                    }
+                }).ContinueWith(t =>
                 {
-                    try { Directory.Delete(sub, true); foldersDeleted++; } catch { errors++; }
-                }
-
-                MessageBox.Show($"Deleted {filesDeleted} file(s) and {foldersDeleted} folder(s).{(errors > 0 ? $" {errors} item(s) could not be deleted." : "")}",
-                    "Delete Logs", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show($"Deleted {filesDeleted} file(s) and {foldersDeleted} folder(s).{(errors > 0 ? $" {errors} item(s) could not be deleted." : "")}",
+                        "Delete Logs", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }, TaskScheduler.FromCurrentSynchronizationContext());
             }
             catch (Exception ex)
             {
@@ -464,8 +469,12 @@ namespace DragonScope
                 }
 
                 _csvSeries.Clear();
-                foreach (var kvp in analysis.CsvSeries)
-                    _csvSeries[kvp.Key] = new List<(double t, double v)>(kvp.Value);
+
+                await Task.Run(() =>
+                {
+                    foreach (var kvp in analysis.CsvSeries)
+                        _csvSeries[kvp.Key] = new List<(double t, double v)>(kvp.Value);
+                });
 
                 _lastConditions = await Task.Run(() => analysis.Conditions
                     .OrderBy(c => c.End ?? c.Start)
@@ -562,7 +571,7 @@ namespace DragonScope
         private void btnMultiCacheAnalysis_Click(object? sender, EventArgs e)
         {
             var multiCacheForm = new MultiCacheMotorAnalysisForm(_cacheManager);
-            multiCacheForm.ShowDialog(this);
+            multiCacheForm.Show(this);
         }
 
         #endregion

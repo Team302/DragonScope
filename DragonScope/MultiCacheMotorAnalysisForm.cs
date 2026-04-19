@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using ScottPlot.WinForms;
 
 namespace DragonScope
@@ -8,18 +9,54 @@ namespace DragonScope
         private readonly Dictionary<string, (CachedAnalysis analysis, System.Drawing.Color color)> _selectedCaches = new();
         private readonly Dictionary<string, List<(double t, double v)>> _filteredData = new();
 
+        private void LogStatus(string message)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => LogStatus(message)));
+                return;
+            }
+
+            if (this.Controls.Find("statusTextBox", true).FirstOrDefault() is RichTextBox txt)
+            {
+                txt.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+                txt.ScrollToCaret();
+            }
+        }
+
         public MultiCacheMotorAnalysisForm(DataCacheManager cacheManager)
         {
             _cacheManager = cacheManager ?? throw new ArgumentNullException(nameof(cacheManager));
             InitializeComponent();
-            LoadCacheList();
         }
 
-        private void LoadCacheList()
+        protected override async void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            
+            if (this.Controls.Find("seriesCombo", true).FirstOrDefault() is ComboBox seriesCombo)
+            {
+                seriesCombo.Items.Add("Loading series...");
+                seriesCombo.SelectedIndex = 0;
+                seriesCombo.Enabled = false;
+            }
+
+            LogStatus("Initializing Multi-Cache Analysis...");
+            await LoadCacheListAsync();
+
+            if (this.Controls.Find("seriesCombo", true).FirstOrDefault() is ComboBox seriesComboEnd)
+            {
+                seriesComboEnd.Enabled = true;
+            }
+            LogStatus("Ready. Select caches and a signal to analyze.");
+        }
+
+        private async Task LoadCacheListAsync()
         {
             var cacheListBox = this.Controls.Find("cacheListBox", true).FirstOrDefault() as CheckedListBox;
             if (cacheListBox == null) return;
 
+            LogStatus("Loading cached logs into memory...");
             var allCaches = _cacheManager.GetAllCachedAnalyses();
             cacheListBox.Items.Clear();
 
@@ -28,7 +65,8 @@ namespace DragonScope
                 cacheListBox.Items.Add($"{cache.FileName} ({cache.CachedAt:g})", false);
             }
 
-            PopulateSeriesList();
+            LogStatus($"Found {allCaches.Count} caches. Searching for common motor signals (multi-threaded)...");
+            await PopulateSeriesListAsync();
         }
 
         private string GetCleanSeriesName(string name)
@@ -42,45 +80,50 @@ namespace DragonScope
             return name;
         }
 
-        private void PopulateSeriesList()
+        private async Task PopulateSeriesListAsync()
         {
             var seriesCombo = this.Controls.Find("seriesCombo", true).FirstOrDefault() as ComboBox;
             if (seriesCombo == null) return;
 
-            var allMotorSeries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            // Collect all motor current series from all caches using metadata
             var allCaches = _cacheManager.GetAllCachedAnalyses();
-            foreach (var cache in allCaches)
+
+            var allMotorSeries = await Task.Run(() => 
             {
-                if (cache.SeriesKeys != null && cache.SeriesKeys.Count > 0)
+                var motorSeries = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+
+                Parallel.ForEach(allCaches, cache =>
                 {
-                    foreach (var seriesName in cache.SeriesKeys)
+                    if (cache.SeriesKeys != null && cache.SeriesKeys.Count > 0)
                     {
-                        if (seriesName.Contains("Current", StringComparison.OrdinalIgnoreCase) &&
-                            seriesName.Contains("Stator", StringComparison.OrdinalIgnoreCase))
-                        {
-                            allMotorSeries.Add(GetCleanSeriesName(seriesName));
-                        }
-                    }
-                }
-                else
-                {
-                    // Fallback for older caches that don't have SeriesKeys populated
-                    var analysis = _cacheManager.LoadAnalysis(cache.CacheId);
-                    if (analysis?.CsvSeries != null)
-                    {
-                        foreach (var seriesName in analysis.CsvSeries.Keys)
+                        foreach (var seriesName in cache.SeriesKeys)
                         {
                             if (seriesName.Contains("Current", StringComparison.OrdinalIgnoreCase) &&
                                 seriesName.Contains("Stator", StringComparison.OrdinalIgnoreCase))
                             {
-                                allMotorSeries.Add(GetCleanSeriesName(seriesName));
+                                motorSeries.TryAdd(GetCleanSeriesName(seriesName), 0);
                             }
                         }
                     }
-                }
-            }
+                    else
+                    {
+                        // Fallback for older caches that don't have SeriesKeys populated
+                        var analysis = _cacheManager.LoadAnalysis(cache.CacheId);
+                        if (analysis?.CsvSeries != null)
+                        {
+                            foreach (var seriesName in analysis.CsvSeries.Keys)
+                            {
+                                if (seriesName.Contains("Current", StringComparison.OrdinalIgnoreCase) &&
+                                    seriesName.Contains("Stator", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    motorSeries.TryAdd(GetCleanSeriesName(seriesName), 0);
+                                }
+                            }
+                        }
+                    }
+                });
+
+                return motorSeries.Keys.ToList();
+            });
 
             seriesCombo.Items.Clear();
             foreach (var series in allMotorSeries.OrderBy(s => s))
@@ -188,6 +231,8 @@ namespace DragonScope
             // Disable UI while analyzing
             btnAnalyze.Enabled = false;
             btnAnalyze.Text = "Loading...";
+            
+            LogStatus($"Pre-filtering caches for signal: {motorCurrentSignal}...");
 
             _selectedCaches.Clear();
             _filteredData.Clear();
@@ -201,6 +246,8 @@ namespace DragonScope
                 if (cacheListBox.GetItemChecked(i))
                     selectedIndices.Add(i);
             }
+            
+            LogStatus($"Attempting to load {selectedIndices.Count} selected cache(s) in parallel.");
 
             // Load analysis payloads in parallel
             var loadTasks = selectedIndices.Select(async (index, colorIndex) =>
@@ -259,12 +306,18 @@ namespace DragonScope
                 btnAnalyze.Enabled = true;
                 btnAnalyze.Text = "Analyze";
                 MessageBox.Show("No valid data found for selected signal in chosen caches.", "No Data", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                LogStatus("Analysis failed: No valid data found.");
                 return;
             }
 
+            LogStatus($"Processing and filtering time data for {_selectedCaches.Count} matching log(s)...");
             await Task.Run(() => LoadAndFilterData(motorCurrentSignal));
+            
+            LogStatus("Redrawing Plot interface...");
             RefreshPlot();
             UpdateColorPanel();
+
+            LogStatus("Analysis visual plot generated successfully.");
 
             btnAnalyze.Enabled = true;
             btnAnalyze.Text = "Analyze";

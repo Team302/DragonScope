@@ -18,6 +18,7 @@ namespace DragonScope
         private Label lblColors;
         private FlowLayoutPanel colorPanel;
         private FormsPlot formsPlot;
+        private RichTextBox statusTextBox;
 
         protected override void Dispose(bool disposing)
         {
@@ -42,6 +43,7 @@ namespace DragonScope
             cacheListBox = new CheckedListBox();
             seriesCombo = new ComboBox();
             formsPlot = new FormsPlot();
+            statusTextBox = new RichTextBox();
             SuspendLayout();
             // 
             // btnAnalyze
@@ -93,11 +95,21 @@ namespace DragonScope
             formsPlot.Size = new Size(686, 340);
             formsPlot.TabIndex = 1;
             // 
+            // statusTextBox
+            // 
+            statusTextBox.Location = new Point(12, 514);
+            statusTextBox.Name = "statusTextBox";
+            statusTextBox.ReadOnly = true;
+            statusTextBox.Size = new Size(674, 100);
+            statusTextBox.TabIndex = 8;
+            statusTextBox.Text = "";
+            // 
             // MultiCacheMotorAnalysisForm
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(686, 509);
+            ClientSize = new Size(686, 626);
+            Controls.Add(statusTextBox);
             Controls.Add(btnExport);
             Controls.Add(colorPanel);
             Controls.Add(btnAnalyze);
