@@ -31,6 +31,17 @@ namespace DragonScope
             PopulateSeriesList();
         }
 
+        private string GetCleanSeriesName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return string.Empty;
+            int idx = name.LastIndexOf(" [");
+            if (idx > 0 && name.EndsWith("]"))
+            {
+                return name.Substring(0, idx);
+            }
+            return name;
+        }
+
         private void PopulateSeriesList()
         {
             var seriesCombo = this.Controls.Find("seriesCombo", true).FirstOrDefault() as ComboBox;
@@ -49,7 +60,7 @@ namespace DragonScope
                         if (seriesName.Contains("Current", StringComparison.OrdinalIgnoreCase) &&
                             seriesName.Contains("Stator", StringComparison.OrdinalIgnoreCase))
                         {
-                            allMotorSeries.Add(seriesName);
+                            allMotorSeries.Add(GetCleanSeriesName(seriesName));
                         }
                     }
                 }
@@ -64,7 +75,7 @@ namespace DragonScope
                             if (seriesName.Contains("Current", StringComparison.OrdinalIgnoreCase) &&
                                 seriesName.Contains("Stator", StringComparison.OrdinalIgnoreCase))
                             {
-                                allMotorSeries.Add(seriesName);
+                                allMotorSeries.Add(GetCleanSeriesName(seriesName));
                             }
                         }
                     }
@@ -198,7 +209,8 @@ namespace DragonScope
                 
                 // Fast path: Check if metadata says it even has the key before loading massive JSON
                 // If SeriesKeys is completely empty, it might be an older cache format, so we fall through and load it just in case.
-                if (cacheMetadata.SeriesKeys != null && cacheMetadata.SeriesKeys.Count > 0 && !cacheMetadata.SeriesKeys.Any(k => k.Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)))
+                if (cacheMetadata.SeriesKeys != null && cacheMetadata.SeriesKeys.Count > 0 && 
+                    !cacheMetadata.SeriesKeys.Any(k => GetCleanSeriesName(k).Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)))
                 {
                     return null; 
                 }
@@ -223,7 +235,7 @@ namespace DragonScope
                 }
 
                 var currentSeries = analysis.CsvSeries.FirstOrDefault(kvp =>
-                    kvp.Key.Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)).Value;
+                    GetCleanSeriesName(kvp.Key).Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)).Value;
 
                 if (currentSeries == null || currentSeries.Count == 0)
                     return null;
@@ -268,7 +280,7 @@ namespace DragonScope
                 var (analysis, _) = kvp.Value;
 
                 var currentSeries = analysis.CsvSeries.FirstOrDefault(s =>
-                    s.Key.Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)).Value;
+                    GetCleanSeriesName(s.Key).Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)).Value;
 
                 if (currentSeries == null) continue;
 
