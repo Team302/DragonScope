@@ -82,6 +82,7 @@ namespace DragonScope
         public string DataHash { get; set; } = "";
         public DateTime CachedAt { get; set; }
         public int LinesParsed { get; set; }
+        public List<string> SeriesKeys { get; set; } = new();
     }
 
     public class DataCacheManager
@@ -213,7 +214,8 @@ namespace DragonScope
                 FileName = analysis.FileName,
                 DataHash = analysis.DataHash,
                 CachedAt = analysis.CachedAt,
-                LinesParsed = analysis.LinesParsed
+                LinesParsed = analysis.LinesParsed,
+                SeriesKeys = analysis.CsvSeries.Keys.ToList()
             };
 
             var existingMetadata = _metadataCache.FirstOrDefault(m => m.CacheId == cacheId);

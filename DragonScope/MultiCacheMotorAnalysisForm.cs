@@ -150,19 +150,34 @@ namespace DragonScope
 
             var allMotorSeries = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            // Collect all motor current series from all caches
+            // Collect all motor current series from all caches using metadata
             var allCaches = _cacheManager.GetAllCachedAnalyses();
             foreach (var cache in allCaches)
             {
-                var analysis = _cacheManager.LoadAnalysis(cache.CacheId);
-                if (analysis?.CsvSeries != null)
+                if (cache.SeriesKeys != null && cache.SeriesKeys.Count > 0)
                 {
-                    foreach (var seriesName in analysis.CsvSeries.Keys)
+                    foreach (var seriesName in cache.SeriesKeys)
                     {
                         if (seriesName.Contains("Current", StringComparison.OrdinalIgnoreCase) &&
                             seriesName.Contains("Stator", StringComparison.OrdinalIgnoreCase))
                         {
                             allMotorSeries.Add(seriesName);
+                        }
+                    }
+                }
+                else
+                {
+                    // Fallback for older caches that don't have SeriesKeys populated
+                    var analysis = _cacheManager.LoadAnalysis(cache.CacheId);
+                    if (analysis?.CsvSeries != null)
+                    {
+                        foreach (var seriesName in analysis.CsvSeries.Keys)
+                        {
+                            if (seriesName.Contains("Current", StringComparison.OrdinalIgnoreCase) &&
+                                seriesName.Contains("Stator", StringComparison.OrdinalIgnoreCase))
+                            {
+                                allMotorSeries.Add(seriesName);
+                            }
                         }
                     }
                 }
@@ -258,7 +273,7 @@ namespace DragonScope
             }
         }
 
-        private void BtnAnalyze_Click(object? sender, EventArgs e)
+        private async void BtnAnalyze_Click(object? sender, EventArgs e)
         {
             var cacheListBox = this.Controls.Find("cacheListBox", true).FirstOrDefault() as CheckedListBox;
             var seriesCombo = this.Controls.Find("seriesCombo", true).FirstOrDefault() as ComboBox;
@@ -271,23 +286,38 @@ namespace DragonScope
                 return;
             }
 
+            // Disable UI while analyzing
+            btnAnalyze.Enabled = false;
+            btnAnalyze.Text = "Loading...";
+
             _selectedCaches.Clear();
             _filteredData.Clear();
 
             var allCaches = _cacheManager.GetAllCachedAnalyses().OrderByDescending(c => c.CachedAt).ToList();
             var defaultColors = GetDefaultColors();
-            var colorIndex = 0;
-
+            
+            var selectedIndices = new List<int>();
             for (int i = 0; i < cacheListBox.Items.Count; i++)
             {
-                if (!cacheListBox.GetItemChecked(i)) continue;
+                if (cacheListBox.GetItemChecked(i))
+                    selectedIndices.Add(i);
+            }
 
-                var cacheMetadata = allCaches[i];
-                var analysis = _cacheManager.LoadAnalysis(cacheMetadata.CacheId);
+            // Load analysis payloads in parallel
+            var loadTasks = selectedIndices.Select(async (index, colorIndex) =>
+            {
+                var cacheMetadata = allCaches[index];
+                
+                // Fast path: Check if metadata says it even has the key before loading massive JSON
+                // If SeriesKeys is completely empty, it might be an older cache format, so we fall through and load it just in case.
+                if (cacheMetadata.SeriesKeys != null && cacheMetadata.SeriesKeys.Count > 0 && !cacheMetadata.SeriesKeys.Any(k => k.Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return null; 
+                }
 
-                if (analysis?.CsvSeries == null) continue;
+                var analysis = await Task.Run(() => _cacheManager.LoadAnalysis(cacheMetadata.CacheId));
+                if (analysis?.CsvSeries == null) return null;
 
-                // Check for legacy/corrupted cache where points are (0,0) due to previous JSON field serialization bug
                 bool corrupted = false;
                 foreach (var list in analysis.CsvSeries.Values)
                 {
@@ -301,32 +331,43 @@ namespace DragonScope
                 if (corrupted)
                 {
                     MessageBox.Show($"Warning: Cache '{cacheMetadata.FileName}' appears to be corrupted (all data points are exactly 0). This is caused by loading a cache made before the latest JSON serialization fix.\n\nPlease clear your caches and re-parse your logs to fix this issue.", "Legacy Cache Detected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
+                    return null;
                 }
 
-                // Try to find exact match or case-insensitive match
                 var currentSeries = analysis.CsvSeries.FirstOrDefault(kvp =>
                     kvp.Key.Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)).Value;
 
                 if (currentSeries == null || currentSeries.Count == 0)
-                {
-                    continue;
-                }
+                    return null;
 
                 var cacheKey = $"{cacheMetadata.FileName}_{cacheMetadata.CacheId}";
-                _selectedCaches[cacheKey] = (analysis, defaultColors[colorIndex % defaultColors.Count]);
-                colorIndex++;
+                return new { CacheKey = cacheKey, Analysis = analysis, Color = defaultColors[colorIndex % defaultColors.Count] };
+            });
+
+            var results = (await Task.WhenAll(loadTasks)).Where(r => r != null).ToList();
+
+            foreach (var r in results)
+            {
+                if (r != null)
+                {
+                    _selectedCaches[r.CacheKey] = (r.Analysis, r.Color);
+                }
             }
 
             if (_selectedCaches.Count == 0)
             {
+                btnAnalyze.Enabled = true;
+                btnAnalyze.Text = "Analyze";
                 MessageBox.Show("No valid data found for selected signal in chosen caches.", "No Data", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            LoadAndFilterData(motorCurrentSignal);
+            await Task.Run(() => LoadAndFilterData(motorCurrentSignal));
             RefreshPlot();
             UpdateColorPanel();
+
+            btnAnalyze.Enabled = true;
+            btnAnalyze.Text = "Analyze";
         }
 
         private void LoadAndFilterData(string motorCurrentSignal)
