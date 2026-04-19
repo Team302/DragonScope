@@ -100,15 +100,16 @@ namespace DragonScope
                 if (!_series.TryGetValue(key, out var pts) || pts.Count == 0)
                     continue;
 
-                double[] xs = new double[pts.Count];
-                double[] ys = new double[pts.Count];
-                for (int i = 0; i < pts.Count; i++)
+                int displayCount = (pts.Count + 1) / 2;
+                double[] xs = new double[displayCount];
+                double[] ys = new double[displayCount];
+                for (int i = 0, j = 0; i < pts.Count; i += 2, j++)
                 {
-                    xs[i] = pts[i].t;
-                    ys[i] = pts[i].v;
+                    xs[j] = pts[i].t;
+                    ys[j] = pts[i].v;
                 }
 
-                if (pts.Count > 100_000)
+                if (displayCount > 100_000)
                 {
                     var sig = formsPlot.Plot.Add.SignalXY(xs, ys);
                     sig.LegendText = key;
@@ -119,6 +120,7 @@ namespace DragonScope
                     var scatter = formsPlot.Plot.Add.Scatter(xs, ys);
                     scatter.LegendText = key;
                     scatter.LineWidth = 1.5f;
+                    scatter.MarkerSize = 0;
                 }
             }
 

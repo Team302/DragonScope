@@ -400,16 +400,17 @@ namespace DragonScope
 
                 var (_, color) = cacheInfo;
 
-                double[] xs = new double[data.Count];
-                double[] ys = new double[data.Count];
+                int displayCount = (data.Count + 1) / 2;
+                double[] xs = new double[displayCount];
+                double[] ys = new double[displayCount];
 
-                for (int i = 0; i < data.Count; i++)
+                for (int i = 0, j = 0; i < data.Count; i += 2, j++)
                 {
-                    xs[i] = data[i].t;
-                    ys[i] = data[i].v;
+                    xs[j] = data[i].t;
+                    ys[j] = data[i].v;
                 }
 
-                if (data.Count > 100_000)
+                if (displayCount > 100_000)
                 {
                     var sig = formsPlot.Plot.Add.SignalXY(xs, ys);
                     sig.LegendText = cacheKey.Split('_')[0]; // Use filename part for legend
@@ -422,6 +423,7 @@ namespace DragonScope
                     scatter.LegendText = cacheKey.Split('_')[0]; // Use filename part for legend
                     scatter.LineWidth = 1.5f;
                     scatter.Color = ToPlotColor(color);
+                    scatter.MarkerSize = 0;
                 }
             }
 
