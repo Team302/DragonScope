@@ -206,7 +206,7 @@ namespace DragonScope
 
             colorPanel.Controls.Clear();
 
-            var allCaches = _cacheManager.GetAllCachedAnalyses();
+            var allCaches = _cacheManager.GetAllCachedAnalyses().OrderByDescending(c => c.CachedAt).ToList();
             var defaultColors = GetDefaultColors();
             var colorIndex = 0;
 
@@ -274,7 +274,7 @@ namespace DragonScope
             _selectedCaches.Clear();
             _filteredData.Clear();
 
-            var allCaches = _cacheManager.GetAllCachedAnalyses();
+            var allCaches = _cacheManager.GetAllCachedAnalyses().OrderByDescending(c => c.CachedAt).ToList();
             var defaultColors = GetDefaultColors();
             var colorIndex = 0;
 
