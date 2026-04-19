@@ -13,20 +13,44 @@ namespace DragonScope
     {
         public override (double t, double v) Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            if (reader.TokenType != JsonTokenType.StartArray)
-                throw new JsonException("Expected array for data point tuple");
+            double t = 0, v = 0;
 
-            reader.Read();
-            if (!reader.TryGetDouble(out var t))
-                throw new JsonException("Failed to read time value");
+            if (reader.TokenType == JsonTokenType.StartArray)
+            {
+                // New format: [t, v]
+                reader.Read();
+                if (!reader.TryGetDouble(out t))
+                    throw new JsonException("Failed to read time value");
 
-            reader.Read();
-            if (!reader.TryGetDouble(out var v))
-                throw new JsonException("Failed to read value");
+                reader.Read();
+                if (!reader.TryGetDouble(out v))
+                    throw new JsonException("Failed to read value");
 
-            reader.Read();
-            if (reader.TokenType != JsonTokenType.EndArray)
-                throw new JsonException("Expected end of array");
+                reader.Read();
+                if (reader.TokenType != JsonTokenType.EndArray)
+                    throw new JsonException("Expected end of array");
+            }
+            else if (reader.TokenType == JsonTokenType.StartObject)
+            {
+                // Old format: {t: value, v: value}
+                while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+                {
+                    if (reader.TokenType == JsonTokenType.PropertyName)
+                    {
+                        string? propertyName = reader.GetString();
+                        reader.Read();
+
+                        if (propertyName == "t" && reader.TryGetDouble(out var tValue))
+                            t = tValue;
+                        else if (propertyName == "v" && reader.TryGetDouble(out var vValue))
+                            v = vValue;
+                    }
+                }
+            }
+            else
+            {
+                throw new JsonException("Expected array or object for data point tuple");
+            }
 
             return (t, v);
         }

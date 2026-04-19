@@ -14,6 +14,7 @@
         private System.Windows.Forms.RichTextBox textBoxOutput;
         private System.Windows.Forms.Button HootLoad;
         private System.Windows.Forms.Button btnMotorStats;
+        private System.Windows.Forms.Button btnMultiCacheAnalysis;
 
         protected override void Dispose(bool disposing)
         {
@@ -35,6 +36,7 @@
             HootLoad = new Button();
             btnDeleteLogs = new Button();
             btnMotorStats = new Button();
+            btnMultiCacheAnalysis = new Button();
             SuspendLayout();
             // 
             // btnOpenXml
@@ -140,11 +142,22 @@
             btnMotorStats.UseVisualStyleBackColor = true;
             btnMotorStats.Click += btnMotorStats_Click;
             // 
+            // btnMultiCacheAnalysis
+            // 
+            btnMultiCacheAnalysis.Location = new Point(490, 8);
+            btnMultiCacheAnalysis.Name = "btnMultiCacheAnalysis";
+            btnMultiCacheAnalysis.Size = new Size(114, 23);
+            btnMultiCacheAnalysis.TabIndex = 11;
+            btnMultiCacheAnalysis.Text = "Multi-Cache Analysis";
+            btnMultiCacheAnalysis.UseVisualStyleBackColor = true;
+            btnMultiCacheAnalysis.Click += btnMultiCacheAnalysis_Click;
+            // 
             // Form1
             //
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(798, 450);
+            Controls.Add(btnMultiCacheAnalysis);
             Controls.Add(btnMotorStats);
             Controls.Add(btnCacheBrowser);
             Controls.Add(btnOpenPlot);

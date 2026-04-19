@@ -445,6 +445,12 @@ namespace DragonScope
             motorStatsForm.ShowDialog(this);
         }
 
+        private void btnMultiCacheAnalysis_Click(object? sender, EventArgs e)
+        {
+            var multiCacheForm = new MultiCacheMotorAnalysisForm(_cacheManager);
+            multiCacheForm.ShowDialog(this);
+        }
+
         #endregion
     }
 }
