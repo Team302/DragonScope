@@ -177,6 +177,17 @@ namespace DragonScope
             UpdateColorPanel();
         }
 
+        private string GetShortMatchName(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName)) return string.Empty;
+            var match = System.Text.RegularExpressions.Regex.Match(fileName, @"(?i)match[_\-\s]*(\d+)");
+            if (match.Success)
+            {
+                return $"M{match.Groups[1].Value}";
+            }
+            return fileName.Length > 10 ? fileName.Substring(0, 8) + ".." : fileName;
+        }
+
         private void UpdateColorPanel()
         {
             var colorPanel = this.Controls.Find("colorPanel", true).FirstOrDefault() as FlowLayoutPanel;
@@ -198,8 +209,9 @@ namespace DragonScope
                 var cache = allCaches[i];
                 var btnColor = new Button
                 {
-                    Width = 25,
-                    Height = 25,
+                    Width = 15,
+                    Height = 15,
+                    Margin = new Padding(3, 4, 0, 3),
                     Tag = cache.CacheId,
                     BackColor = defaultColors[colorIndex % defaultColors.Count],
                     FlatStyle = FlatStyle.Flat
@@ -208,8 +220,9 @@ namespace DragonScope
 
                 var label = new System.Windows.Forms.Label
                 {
-                    Text = cache.FileName,
+                    Text = GetShortMatchName(cache.FileName),
                     AutoSize = true,
+                    Margin = new Padding(0, 3, 5, 3),
                     TextAlign = ContentAlignment.MiddleLeft
                 };
 
