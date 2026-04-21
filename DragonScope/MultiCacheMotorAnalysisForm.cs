@@ -6,7 +6,8 @@ namespace DragonScope
     public partial class MultiCacheMotorAnalysisForm : Form
     {
         private readonly DataCacheManager _cacheManager;
-        private readonly Dictionary<string, (CachedAnalysis analysis, System.Drawing.Color color)> _selectedCaches = new();
+        // Only store color info after graph is rendered, not the massive CachedAnalysis objects
+        private readonly Dictionary<string, System.Drawing.Color> _cacheColors = new();
         private readonly Dictionary<string, List<(double t, double v)>> _filteredData = new();
 
         private void LogStatus(string message)
@@ -241,11 +242,10 @@ namespace DragonScope
                 {
                     colorButton.BackColor = colorDialog.Color;
 
-                    // Update selected cache color
-                    if (_selectedCaches.ContainsKey(cacheId))
+                    // Update cache color
+                    if (_cacheColors.ContainsKey(cacheId))
                     {
-                        var cache = _selectedCaches[cacheId].analysis;
-                        _selectedCaches[cacheId] = (cache, colorDialog.Color);
+                        _cacheColors[cacheId] = colorDialog.Color;
                         RefreshPlot();
                     }
                 }
@@ -268,77 +268,107 @@ namespace DragonScope
             // Disable UI while analyzing
             btnAnalyze.Enabled = false;
             btnAnalyze.Text = "Loading...";
-            
+
             LogStatus($"Pre-filtering caches for signal: {motorCurrentSignal}...");
 
-            _selectedCaches.Clear();
+            _cacheColors.Clear();
             _filteredData.Clear();
 
             var allCaches = _cacheManager.GetAllCachedAnalyses().OrderByDescending(c => c.CachedAt).ToList();
             var defaultColors = GetDefaultColors();
-            
+
             var selectedIndices = new List<int>();
             for (int i = 0; i < cacheListBox.Items.Count; i++)
             {
                 if (cacheListBox.GetItemChecked(i))
                     selectedIndices.Add(i);
             }
-            
+
             LogStatus($"Attempting to load {selectedIndices.Count} selected cache(s) in parallel.");
 
-            // Load analysis payloads in parallel
+            // Load analysis payloads in parallel, process immediately, then dispose
+            var processedCaches = new List<(string cacheKey, List<(double t, double v)> filteredData, System.Drawing.Color color)>();
+
             var loadTasks = selectedIndices.Select(async (index, colorIndex) =>
             {
                 var cacheMetadata = allCaches[index];
-                
+
                 // Fast path: Check if metadata says it even has the key before loading massive JSON
-                // If SeriesKeys is completely empty, it might be an older cache format, so we fall through and load it just in case.
                 if (cacheMetadata.SeriesKeys != null && cacheMetadata.SeriesKeys.Count > 0 && 
                     !cacheMetadata.SeriesKeys.Any(k => GetCleanSeriesName(k).Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)))
                 {
-                    return null; 
+                    return (null, null, System.Drawing.Color.Black)!; 
                 }
 
-                var analysis = await Task.Run(() => _cacheManager.LoadAnalysis(cacheMetadata.CacheId));
-                if (analysis?.CsvSeries == null) return null;
-
-                bool corrupted = false;
-                foreach (var list in analysis.CsvSeries.Values)
+                CachedAnalysis analysis = null;
+                try
                 {
-                    if (list.Count > 10 && list.All(p => p.t == 0 && p.v == 0))
+                    analysis = await Task.Run(() => _cacheManager.LoadAnalysis(cacheMetadata.CacheId));
+                    if (analysis?.CsvSeries == null) return (null, null, System.Drawing.Color.Black)!;
+
+                    bool corrupted = false;
+                    foreach (var list in analysis.CsvSeries.Values)
                     {
-                        corrupted = true;
-                        break;
+                        if (list.Count > 10 && list.All(p => p.t == 0 && p.v == 0))
+                        {
+                            corrupted = true;
+                            break;
+                        }
+                    }
+
+                    if (corrupted)
+                    {
+                        MessageBox.Show($"Warning: Cache '{cacheMetadata.FileName}' appears to be corrupted (all data points are exactly 0). This is caused by loading a cache made before the latest JSON serialization fix.\n\nPlease clear your caches and re-parse your logs to fix this issue.", "Legacy Cache Detected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return (null, null, System.Drawing.Color.Black)!;
+                    }
+
+                    var currentSeries = analysis.CsvSeries.FirstOrDefault(kvp =>
+                        GetCleanSeriesName(kvp.Key).Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)).Value;
+
+                    if (currentSeries == null || currentSeries.Count == 0)
+                        return (null, null, System.Drawing.Color.Black)!;
+
+                    // Filter data immediately
+                    var filtered = new List<(double t, double v)>();
+                    foreach (var point in currentSeries)
+                    {
+                        if (point.t >= 0)
+                        {
+                            filtered.Add(point);
+                        }
+                    }
+
+                    if (filtered.Count == 0)
+                    {
+                        filtered = new List<(double t, double v)>(currentSeries);
+                    }
+
+                    var cacheKey = $"{cacheMetadata.FileName}_{cacheMetadata.CacheId}";
+                    var color = defaultColors[colorIndex % defaultColors.Count];
+
+                    return (cacheKey, filtered, color)!;
+                }
+                finally
+                {
+                    // Dispose of the massive analysis object immediately after processing
+                    if (analysis != null)
+                    {
+                        analysis.CsvSeries?.Clear();
+                        analysis.Conditions?.Clear();
+                        analysis = null;
                     }
                 }
-
-                if (corrupted)
-                {
-                    MessageBox.Show($"Warning: Cache '{cacheMetadata.FileName}' appears to be corrupted (all data points are exactly 0). This is caused by loading a cache made before the latest JSON serialization fix.\n\nPlease clear your caches and re-parse your logs to fix this issue.", "Legacy Cache Detected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return null;
-                }
-
-                var currentSeries = analysis.CsvSeries.FirstOrDefault(kvp =>
-                    GetCleanSeriesName(kvp.Key).Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)).Value;
-
-                if (currentSeries == null || currentSeries.Count == 0)
-                    return null;
-
-                var cacheKey = $"{cacheMetadata.FileName}_{cacheMetadata.CacheId}";
-                return new { CacheKey = cacheKey, Analysis = analysis, Color = defaultColors[colorIndex % defaultColors.Count] };
             });
 
-            var results = (await Task.WhenAll(loadTasks)).Where(r => r != null).ToList();
+            var results = (await Task.WhenAll(loadTasks)).Where(r => r.cacheKey != null).ToList();
 
             foreach (var r in results)
             {
-                if (r != null)
-                {
-                    _selectedCaches[r.CacheKey] = (r.Analysis, r.Color);
-                }
+                _filteredData[r.cacheKey] = r.filtered;
+                _cacheColors[r.cacheKey] = r.color;
             }
 
-            if (_selectedCaches.Count == 0)
+            if (_filteredData.Count == 0)
             {
                 btnAnalyze.Enabled = true;
                 btnAnalyze.Text = "Analyze";
@@ -347,51 +377,18 @@ namespace DragonScope
                 return;
             }
 
-            LogStatus($"Processing and filtering time data for {_selectedCaches.Count} matching log(s)...");
-            await Task.Run(() => LoadAndFilterData(motorCurrentSignal));
-            
-            LogStatus("Redrawing Plot interface...");
+            LogStatus($"Rendering plot with {_filteredData.Count} matching log(s)...");
             RefreshPlot();
             UpdateColorPanel();
 
-            LogStatus("Analysis visual plot generated successfully.");
+            LogStatus("Analysis visual plot generated successfully. Freeing analysis buffers...");
+
+            // Force garbage collection to free memory from loaded analysis objects
+            GC.Collect(0, GCCollectionMode.Optimized);
+            GC.WaitForPendingFinalizers();
 
             btnAnalyze.Enabled = true;
             btnAnalyze.Text = "Analyze";
-        }
-
-        private void LoadAndFilterData(string motorCurrentSignal)
-        {
-            _filteredData.Clear();
-
-            foreach (var kvp in _selectedCaches)
-            {
-                var cacheKey = kvp.Key;
-                var (analysis, _) = kvp.Value;
-
-                var currentSeries = analysis.CsvSeries.FirstOrDefault(s =>
-                    GetCleanSeriesName(s.Key).Equals(motorCurrentSignal, StringComparison.OrdinalIgnoreCase)).Value;
-
-                if (currentSeries == null) continue;
-
-                // Time is already normalized to RobotEnable in the parser, so point.t >= 0 is enabled
-                var filtered = new List<(double t, double v)>();
-                foreach (var point in currentSeries)
-                {
-                    if (point.t >= 0)
-                    {
-                        filtered.Add(point);
-                    }
-                }
-
-                if (filtered.Count == 0)
-                {
-                    // Fallback to all data if there's no data past enable
-                    filtered = currentSeries;
-                }
-
-                _filteredData[cacheKey] = filtered;
-            }
         }
 
         private void RefreshPlot()
@@ -408,10 +405,8 @@ namespace DragonScope
 
                 if (data.Count == 0) continue;
 
-                if (!_selectedCaches.TryGetValue(cacheKey, out var cacheInfo))
+                if (!_cacheColors.TryGetValue(cacheKey, out var color))
                     continue;
-
-                var (_, color) = cacheInfo;
 
                 int displayCount = (data.Count + 1) / 2;
                 double[] xs = new double[displayCount];
@@ -532,6 +527,23 @@ namespace DragonScope
                 System.Drawing.Color.Cyan,
                 System.Drawing.Color.Magenta
             };
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            base.OnFormClosed(e);
+            ClearAllData();
+        }
+
+        private void ClearAllData()
+        {
+            // Clear all dictionaries to free memory
+            _filteredData?.Clear();
+            _cacheColors?.Clear();
+
+            // Force garbage collection
+            GC.Collect(0, GCCollectionMode.Optimized);
+            GC.WaitForPendingFinalizers();
         }
     }
 }
