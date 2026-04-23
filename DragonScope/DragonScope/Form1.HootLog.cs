@@ -401,5 +401,204 @@ namespace DragonScope
             }
             WriteToTextBox($"Owlet conversion ok: {Path.GetFileName(hootLogPath)}", 0);
         }
+
+        private async Task ProcessBulkLogsAndCacheAsync(string parentFolder)
+        {
+            m_stopWatch.Restart();
+            progressBar1.Value = 0;
+
+            try
+            {
+                if (!TryEnsureOwletPathVerified(out string message))
+                {
+                    if (!string.IsNullOrEmpty(message))
+                        MessageBox.Show(message, "Owlet verification", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+                    using var openFileDialog = new OpenFileDialog
+                    {
+                        Filter = "Executable Files (*.exe)|*.exe|All files (*.*)|*.*",
+                        Title = "Select Owlet Executable",
+                        InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                    };
+                    if (openFileDialog.ShowDialog() != DialogResult.OK)
+                    {
+                        MessageBox.Show("Please select the Owlet executable.");
+                        return;
+                    }
+                    var selectedPath = openFileDialog.FileName;
+                    if (!File.Exists(selectedPath))
+                    {
+                        MessageBox.Show("Selected file does not exist.");
+                        return;
+                    }
+                    var sha1 = ComputeSha1(selectedPath);
+                    SaveOwletConfig(selectedPath, sha1);
+                    m_owletExecutablePath = selectedPath;
+                }
+
+                // Get all subdirectories (each match)
+                var matchFolders = Directory.GetDirectories(parentFolder)
+                    .OrderBy(d => Path.GetFileName(d))
+                    .ToList();
+
+                if (matchFolders.Count == 0)
+                {
+                    MessageBox.Show($"No subdirectories found in:\n{parentFolder}", "No Data Found", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                WriteToTextBox($"Found {matchFolders.Count} match folder(s) to process.", 0);
+
+                string logsDir = GetLogsDir();
+                Directory.CreateDirectory(logsDir);
+
+                int matchNumber = 1;
+                int totalMatches = matchFolders.Count;
+                int totalCached = 0;
+
+                foreach (var matchFolder in matchFolders)
+                {
+                    string matchName = Path.GetFileName(matchFolder);
+                    WriteToTextBox($"\n--- Processing Match {matchNumber}/{totalMatches}: {matchName} ---", 0);
+
+                    // Find the largest .hoot or .wpilog file from each CAN bus
+                    var hootFiles = Directory.GetFiles(matchFolder, "*.hoot", SearchOption.AllDirectories);
+                    var wpilogFiles = Directory.GetFiles(matchFolder, "*.wpilog", SearchOption.AllDirectories);
+
+                    // Combine both types and group by CAN bus identifier (typically in filename)
+                    var allLogFiles = hootFiles.Cast<string>().Concat(wpilogFiles).ToList();
+
+                    if (allLogFiles.Count == 0)
+                    {
+                        WriteToTextBox($"No .hoot or .wpilog files found in {matchName}", 1);
+                        continue;
+                    }
+
+                    // Group files by CAN bus (assuming format like "CAN0_*.hoot", "CAN1_*.hoot", "CAN2_*.hoot")
+                    var filesByBus = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var file in allLogFiles)
+                    {
+                        string filename = Path.GetFileName(file);
+                        string busId = ExtractCanBusId(filename);
+
+                        if (!filesByBus.ContainsKey(busId))
+                            filesByBus[busId] = new List<string>();
+
+                        filesByBus[busId].Add(file);
+                    }
+
+                    WriteToTextBox($"Found {filesByBus.Count} CAN bus(es): {string.Join(", ", filesByBus.Keys)}", 0);
+
+                    // For each bus, select the largest file
+                    var selectedFiles = new List<string>();
+                    foreach (var busFiles in filesByBus.Values)
+                    {
+                        var largest = busFiles
+                            .OrderByDescending(f => new FileInfo(f).Length)
+                            .First();
+                        selectedFiles.Add(largest);
+                        WriteToTextBox($"Selected for {Path.GetFileName(largest)}: {new FileInfo(largest).Length / (1024.0 * 1024.0):F2} MB", 0);
+                    }
+
+                    // Convert .wpilog files to .hoot equivalent (skip if already wpilog)
+                    var hootFilesToProcess = new List<string>();
+                    foreach (var file in selectedFiles)
+                    {
+                        if (file.EndsWith(".wpilog", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hootFilesToProcess.Add(file); // Already wpilog, process as-is
+                        }
+                        else
+                        {
+                            hootFilesToProcess.Add(file); // .hoot file, will convert
+                        }
+                    }
+
+                    // Process these files (convert if needed, parse, and cache)
+                    if (hootFilesToProcess.Count > 0)
+                    {
+                        try
+                        {
+                            progressBar1.Value = 0;
+                            await ProcessMultipleHootFilesAsync(hootFilesToProcess.ToArray());
+
+                            // Cache the result with match name
+                            string cacheFileName = $"{matchName}_{DateTime.Now:yyyyMMdd_HHmmss}";
+                            await CacheCurrentAnalysisAsync(cacheFileName, 0);
+                            totalCached++;
+
+                            WriteToTextBox($"✓ Successfully cached match: {matchName}", 0);
+                        }
+                        catch (Exception ex)
+                        {
+                            WriteToTextBox($"✗ Failed to process match {matchName}: {ex.Message}", 1);
+                        }
+                    }
+
+                    matchNumber++;
+                }
+
+                progressBar1.Value = 100;
+                m_stopWatch.Stop();
+                WriteToTextBox($"\n=== BULK PROCESSING COMPLETE ===", 0);
+                WriteToTextBox($"Processed {totalMatches} match folder(s), cached {totalCached} successfully in {m_stopWatch.Elapsed.TotalSeconds:F2} seconds", 0);
+
+                MessageBox.Show($"Bulk processing complete.\n\nProcessed: {totalMatches} matches\nSuccessfully cached: {totalCached}", 
+                    "Bulk Process Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                CompactHeap();
+            }
+            catch (Exception ex)
+            {
+                WriteToTextBox($"Bulk processing error: {ex.Message}", 1);
+                MessageBox.Show($"An error occurred during bulk processing:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private string ExtractCanBusId(string filename)
+        {
+            // Remove extension first
+            string nameWithoutExt = Path.GetFileNameWithoutExtension(filename);
+
+            // Try to extract CAN bus identifier from filename
+            // Expected formats:
+            // - "CAN0_...", "CAN1_...", "CAN2_..." (standard format)
+            // - "MICHE_E8_7E177D0C...", "MICHE_E8_rio_..." (Team 302 format)
+            // - "TEAM_ROBOT_<BUS_ID>_..." (general underscore-separated format)
+
+            // First try: Look for CAN[0-9]+ pattern
+            var match = System.Text.RegularExpressions.Regex.Match(
+                nameWithoutExt, 
+                @"CAN[0-9]+", 
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (match.Success)
+                return match.Value.ToUpper();
+
+            // Second try: Split by underscore and extract the bus ID
+            // For "MICHE_E8_rio_2026-03-08" format, bus ID is at index 2
+            var parts = nameWithoutExt.Split('_');
+            if (parts.Length >= 3)
+            {
+                // Return the 3rd segment (index 2) as the bus identifier
+                string busId = parts[2];
+
+                // Validate it's not a timestamp or other non-identifier pattern
+                // (timestamps typically contain dashes or are date-like)
+                if (!busId.Contains('-') && busId.Length > 0)
+                {
+                    return busId;
+                }
+            }
+
+            // Fallback: try to extract number pattern
+            match = System.Text.RegularExpressions.Regex.Match(nameWithoutExt, @"[0-9]+");
+            if (match.Success)
+                return $"BUS{match.Value}";
+
+            // Last resort: use full filename minus extension
+            return nameWithoutExt;
+        }
     }
 }

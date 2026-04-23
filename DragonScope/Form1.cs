@@ -574,6 +574,30 @@ namespace DragonScope
             multiCacheForm.Show(this);
         }
 
+        private async void btnBulkProcessCache_Click(object? sender, EventArgs e)
+        {
+            textBoxOutput.Text = "";
+            _writtenMessages.Clear();
+
+            if (!m_xmlInit)
+            {
+                MessageBox.Show("Please load the XML file first.", "Bulk Process & Cache", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using var folderDialog = new FolderBrowserDialog
+            {
+                Description = "Select parent folder containing match subfolders with log files",
+                ShowNewFolderButton = false
+            };
+
+            if (folderDialog.ShowDialog() != DialogResult.OK)
+                return;
+
+            string parentFolder = folderDialog.SelectedPath;
+            await ProcessBulkLogsAndCacheAsync(parentFolder);
+        }
+
         #endregion
     }
 }

@@ -15,6 +15,7 @@
         private System.Windows.Forms.Button HootLoad;
         private System.Windows.Forms.Button btnMotorStats;
         private System.Windows.Forms.Button btnMultiCacheAnalysis;
+        private System.Windows.Forms.Button btnBulkProcessCache;
 
         protected override void Dispose(bool disposing)
         {
@@ -37,6 +38,7 @@
             btnDeleteLogs = new Button();
             btnMotorStats = new Button();
             btnMultiCacheAnalysis = new Button();
+            btnBulkProcessCache = new Button();
             SuspendLayout();
             // 
             // btnOpenXml
@@ -152,11 +154,22 @@
             btnMultiCacheAnalysis.UseVisualStyleBackColor = true;
             btnMultiCacheAnalysis.Click += btnMultiCacheAnalysis_Click;
             // 
+            // btnBulkProcessCache
+            // 
+            btnBulkProcessCache.Location = new Point(610, 8);
+            btnBulkProcessCache.Name = "btnBulkProcessCache";
+            btnBulkProcessCache.Size = new Size(109, 23);
+            btnBulkProcessCache.TabIndex = 12;
+            btnBulkProcessCache.Text = "Bulk Process & Cache";
+            btnBulkProcessCache.UseVisualStyleBackColor = true;
+            btnBulkProcessCache.Click += btnBulkProcessCache_Click;
+            // 
             // Form1
             //
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(798, 450);
+            Controls.Add(btnBulkProcessCache);
             Controls.Add(btnMultiCacheAnalysis);
             Controls.Add(btnMotorStats);
             Controls.Add(btnCacheBrowser);
